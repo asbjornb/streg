@@ -23,6 +23,10 @@ export default {
         return handleAuth(request, env, corsHeaders);
       }
 
+      if (url.pathname === "/describe" && request.method === "POST") {
+        return handleDescribe(request, env, corsHeaders);
+      }
+
       if (url.pathname === "/generate" && request.method === "POST") {
         return handleGenerate(request, env, corsHeaders);
       }
@@ -87,6 +91,135 @@ async function sign(data, secret) {
     .replace(/=+$/, "");
 }
 
+// === Describe: use BLIP to caption a scribble drawing ===
+
+async function handleDescribe(request, env, cors) {
+  if (!(await verifyToken(request, env))) {
+    return jsonResponse({ error: "Not authorized" }, 401, cors);
+  }
+
+  const { image } = await request.json();
+
+  if (!image) {
+    return jsonResponse({ error: "Need an image" }, 400, cors);
+  }
+
+  // Use BLIP-2 to caption the drawing
+  const res = await fetch("https://api.replicate.com/v1/predictions", {
+    method: "POST",
+    headers: {
+      "Authorization": "Bearer " + env.REPLICATE_API_TOKEN,
+      "Content-Type": "application/json",
+      "Prefer": "respond-async",
+    },
+    body: JSON.stringify({
+      version: "2e1dddc8621f72155f24cf2e0adbde548458d3cab9f00c0139eea840d0ac4746",
+      input: {
+        image,
+        task: "image_captioning",
+      },
+    }),
+  });
+
+  if (!res.ok) {
+    const err = await res.text();
+    console.error("Replicate describe error:", err);
+    return jsonResponse({ error: "AI service error" }, 502, cors);
+  }
+
+  const prediction = await res.json();
+
+  // Get the raw caption from BLIP
+  let rawCaption = null;
+
+  if (prediction.status === "succeeded" && prediction.output) {
+    rawCaption = prediction.output.replace(/^Caption:\s*/i, "").trim();
+  } else if (prediction.id) {
+    // Poll for BLIP result (usually fast)
+    for (let i = 0; i < 15; i++) {
+      await new Promise(r => setTimeout(r, 1000));
+      const poll = await fetch(
+        `https://api.replicate.com/v1/predictions/${prediction.id}`,
+        { headers: { "Authorization": "Bearer " + env.REPLICATE_API_TOKEN } }
+      );
+      const result = await poll.json();
+      if (result.status === "succeeded" && result.output) {
+        rawCaption = (typeof result.output === "string" ? result.output : result.output.toString())
+          .replace(/^Caption:\s*/i, "").trim();
+        break;
+      }
+      if (result.status === "failed" || result.status === "canceled") {
+        return jsonResponse({ error: "Could not describe the drawing" }, 502, cors);
+      }
+    }
+  }
+
+  if (!rawCaption) {
+    return jsonResponse({ error: "Could not describe the drawing" }, 502, cors);
+  }
+
+  // Use an LLM to enrich the caption with a fitting, contrasting background
+  const enriched = await enrichCaption(rawCaption, env);
+
+  return jsonResponse({ caption: rawCaption, prompt: enriched }, 200, cors);
+}
+
+// === Enrich caption with a contrasting background using an LLM ===
+
+async function enrichCaption(caption, env) {
+  try {
+    const res = await fetch("https://api.replicate.com/v1/models/meta/meta-llama-3-8b-instruct/predictions", {
+      method: "POST",
+      headers: {
+        "Authorization": "Bearer " + env.REPLICATE_API_TOKEN,
+        "Content-Type": "application/json",
+        "Prefer": "respond-async",
+      },
+      body: JSON.stringify({
+        input: {
+          prompt: `A child drew "${caption}". Write a short image generation prompt (under 20 words) that describes this subject with a fitting, colorful background that contrasts with the subject so it stands out clearly. Only output the prompt, nothing else.`,
+          max_tokens: 60,
+          temperature: 0.7,
+        },
+      }),
+    });
+
+    if (!res.ok) return caption;
+
+    const prediction = await res.json();
+
+    // If completed synchronously
+    if (prediction.status === "succeeded" && prediction.output) {
+      const text = Array.isArray(prediction.output) ? prediction.output.join("") : prediction.output;
+      return text.trim().replace(/^["']|["']$/g, "") || caption;
+    }
+
+    // Poll for result
+    if (prediction.id) {
+      for (let i = 0; i < 15; i++) {
+        await new Promise(r => setTimeout(r, 1000));
+        const poll = await fetch(
+          `https://api.replicate.com/v1/predictions/${prediction.id}`,
+          { headers: { "Authorization": "Bearer " + env.REPLICATE_API_TOKEN } }
+        );
+        const result = await poll.json();
+        if (result.status === "succeeded" && result.output) {
+          const text = Array.isArray(result.output) ? result.output.join("") : result.output;
+          return text.trim().replace(/^["']|["']$/g, "") || caption;
+        }
+        if (result.status === "failed" || result.status === "canceled") {
+          return caption;
+        }
+      }
+    }
+
+    return caption;
+  } catch {
+    // If LLM enrichment fails for any reason, just use the raw caption
+    return caption;
+  }
+}
+
 // === Generate: send drawing to Replicate ===
 
 async function handleGenerate(request, env, cors) {
@@ -119,8 +252,8 @@ async function handleGenerate(request, env, cors) {
         scale: 9,
         seed: Math.floor(Math.random() * 2147483647),
         eta: 0,
-        a_prompt: "best quality, extremely detailed, colorful, vibrant",
-        n_prompt: "longbody, lowres, bad anatomy, bad hands, missing fingers, extra digit, fewer digits, cropped, worst quality, low quality",
+        a_prompt: "best quality, extremely detailed, colorful, vibrant, subject clearly distinct from background, contrasting background, well-defined edges",
+        n_prompt: "longbody, lowres, bad anatomy, bad hands, missing fingers, extra digit, fewer digits, cropped, worst quality, low quality, subject blending into background, uniform texture, monochrome background",
       },
     }),
   });
