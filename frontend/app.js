@@ -344,6 +344,10 @@ function setupSubmit() {
       if (!prompt) {
         btnLoading.textContent = "Looking at your drawing...";
         const described = await describeDrawing(imageData);
+        if (described.failed) {
+          btnLoading.textContent = "Couldn't auto-describe — using a default. You can type your own!";
+          await sleep(2000);
+        }
         // Show the full enriched prompt so users can see what the AI came up with
         prompt = described.prompt;
         document.getElementById("prompt-input").value = prompt;
@@ -362,7 +366,8 @@ function setupSubmit() {
 
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        throw new Error(err.error || "Something went wrong");
+        const detail = err.detail ? ` (${err.detail})` : "";
+        throw new Error((err.error || "Something went wrong") + detail);
       }
 
       const data = await res.json();
@@ -374,7 +379,15 @@ function setupSubmit() {
         showResult(data.output, prompt);
       }
     } catch (err) {
-      alert("Oops! " + err.message);
+      console.error("Generation error:", err);
+      const msg = err.message || "Unknown error";
+      if (msg.includes("502") || msg.includes("AI service error")) {
+        alert("The AI model might be waking up — this can take a minute on the first try. Give it another go!");
+      } else if (msg.includes("Not authorized") || msg.includes("401")) {
+        alert("Your session expired. Refresh the page to log in again.");
+      } else {
+        alert("Oops! " + msg);
+      }
     } finally {
       btn.disabled = false;
       btnText.hidden = false;
@@ -396,7 +409,9 @@ async function describeDrawing(imageData) {
   });
 
   if (!res.ok) {
-    return { caption: fallback, prompt: fallback };
+    const err = await res.json().catch(() => ({}));
+    console.warn("Describe request failed:", res.status, err.detail || err.error || "");
+    return { caption: fallback, prompt: fallback, failed: true };
   }
 
   const data = await res.json();
@@ -432,7 +447,8 @@ async function describeDrawing(imageData) {
           continue;
         }
         if (result.status === "failed" || result.status === "canceled") {
-          return { caption: fallback, prompt: fallback };
+          console.warn("Describe prediction failed:", result.error || result.status);
+          return { caption: fallback, prompt: fallback, failed: true };
         }
       } catch {
         // Network error, keep polling
@@ -440,7 +456,8 @@ async function describeDrawing(imageData) {
     }
   }
 
-  return { caption: fallback, prompt: fallback };
+  console.warn("Describe polling timed out");
+  return { caption: fallback, prompt: fallback, failed: true };
 }
 
 async function pollForResult(predictionId, prompt) {
@@ -463,6 +480,7 @@ async function pollForResult(predictionId, prompt) {
         btnLoading.textContent = "Working the magic...";
         return;
       } else if (data.status === "failed" || data.status === "canceled") {
+        console.error("Generation prediction failed:", data.error);
         throw new Error(data.error || "The magic didn't work this time. Try again!");
       }
       // else still processing, keep polling

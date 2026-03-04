@@ -47,7 +47,8 @@ export default {
 
       return jsonResponse({ error: "Not found" }, 404, corsHeaders);
     } catch (err) {
-      return jsonResponse({ error: "Internal error" }, 500, corsHeaders);
+      console.error("Unhandled worker error:", err?.message, err?.stack);
+      return jsonResponse({ error: "Internal error", detail: err?.message || "Unknown" }, 500, corsHeaders);
     }
   },
 };
@@ -133,8 +134,12 @@ async function handleDescribe(request, env, cors) {
 
   if (!res.ok) {
     const err = await res.text();
-    console.error("Replicate describe error:", err);
-    return jsonResponse({ error: "AI service error" }, 502, cors);
+    console.error("Replicate describe error:", res.status, err);
+    return jsonResponse({
+      error: "AI service error",
+      detail: `Replicate returned ${res.status}`,
+      replicate_status: res.status,
+    }, 502, cors);
   }
 
   const prediction = await res.json();
@@ -174,6 +179,7 @@ async function handleDescribeStatus(request, env, cors, predictionId) {
   }
 
   if (prediction.status === "failed" || prediction.status === "canceled") {
+    console.error("Describe prediction failed:", prediction.id, prediction.error);
     return jsonResponse({
       id: prediction.id,
       status: prediction.status,
@@ -333,8 +339,12 @@ async function handleGenerate(request, env, cors) {
 
   if (!res.ok) {
     const err = await res.text();
-    console.error("Replicate error:", err);
-    return jsonResponse({ error: "AI service error" }, 502, cors);
+    console.error("Replicate generate error:", res.status, err);
+    return jsonResponse({
+      error: "AI service error",
+      detail: `Replicate returned ${res.status}`,
+      replicate_status: res.status,
+    }, 502, cors);
   }
 
   const prediction = await res.json();
