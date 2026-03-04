@@ -187,9 +187,10 @@ async function enrichCaption(caption, env) {
       },
       body: JSON.stringify({
         input: {
-          prompt: `A child drew "${caption}". Write a short image generation prompt (under 20 words) that describes this subject with a fitting, colorful background that contrasts with the subject so it stands out clearly. Only output the prompt, nothing else.`,
+          system_prompt: "You are an image-prompt writer for a children's drawing app. Every prompt you write MUST begin with \"children's picture book illustration, bright colors, clean edges,\" followed by a description of the subject and a contrasting background. Output exactly one line, under 20 words, no quotes, no commentary.",
+          prompt: `Subject: ${caption}`,
           max_tokens: 60,
-          temperature: 0.7,
+          temperature: 0.4,
         },
       }),
     });
