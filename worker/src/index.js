@@ -164,6 +164,14 @@ async function handleDescribe(request, env, cors) {
     return jsonResponse({ error: "Could not describe the drawing" }, 502, cors);
   }
 
+  // Strip color and medium references — BLIP describes what it sees (a black and white
+  // sketch on a screen) which would bias the image generator toward grayscale output.
+  rawCaption = rawCaption
+    .replace(/\ba\s+(black\s+and\s+white|colou?rful|pencil|pen|ink|crayon|marker)\s+(drawing|sketch|illustration|picture|painting|image|doodle)\s+of\s+/gi, "")
+    .replace(/\b(black\s+and\s+white|grayscale|grey|gray|monochrome)\s+/gi, "")
+    .replace(/\b(drawing|sketch|illustration|doodle|painting)\s+of\s+/gi, "")
+    .replace(/^\s+/, "");
+
   // Use an LLM to enrich the caption with a fitting, contrasting background
   const enriched = await enrichCaption(rawCaption, env);
 
@@ -186,7 +194,7 @@ async function enrichCaption(caption, env) {
       },
       body: JSON.stringify({
         input: {
-          prompt: `A child drew "${caption}". Write a short image generation prompt (under 20 words) that describes this subject with a fitting, colorful background that contrasts with the subject so it stands out clearly. Only output the prompt, nothing else.`,
+          prompt: `A child drew "${caption}". Write a short image generation prompt (under 20 words) that describes this subject in vivid color with a fitting, colorful background that contrasts with the subject so it stands out clearly. Do not mention black and white, sketches, or drawings. Only output the prompt, nothing else.`,
           max_tokens: 60,
           temperature: 0.7,
         },
