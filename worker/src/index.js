@@ -138,6 +138,7 @@ async function handleDescribe(request, env, cors) {
     console.error("Replicate describe error:", res.status, body);
     return jsonResponse({
       error: "AI service error",
+      step: "describe",
       detail,
       replicate_status: res.status,
     }, 502, cors);
@@ -172,7 +173,7 @@ async function handleDescribeStatus(request, env, cors, predictionId) {
     const body = await res.text();
     const detail = parseReplicateError(res.status, body);
     console.error("Replicate describe status check error:", res.status, body);
-    return jsonResponse({ error: "Could not check status", detail }, 502, cors);
+    return jsonResponse({ error: "Could not check status", step: "describe-status", detail }, 502, cors);
   }
 
   const prediction = await res.json();
@@ -347,6 +348,7 @@ async function handleGenerate(request, env, cors) {
     console.error("Replicate generate error:", res.status, body);
     return jsonResponse({
       error: "AI service error",
+      step: "generate",
       detail,
       replicate_status: res.status,
     }, 502, cors);
@@ -385,7 +387,7 @@ async function handleStatus(request, env, cors, predictionId) {
     const body = await res.text();
     const detail = parseReplicateError(res.status, body);
     console.error("Replicate status check error:", res.status, body);
-    return jsonResponse({ error: "Could not check status", detail }, 502, cors);
+    return jsonResponse({ error: "Could not check status", step: "poll-status", detail }, 502, cors);
   }
 
   const prediction = await res.json();

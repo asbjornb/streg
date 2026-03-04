@@ -361,19 +361,25 @@ function setupSubmit() {
 
       // Send to worker
       btnLoading.textContent = "Working the magic...";
-      const res = await fetch(WORKER_URL + "/generate", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": "Bearer " + authToken,
-        },
-        body: JSON.stringify({ image: imageData, prompt }),
-      });
+      let res;
+      try {
+        res = await fetch(WORKER_URL + "/generate", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer " + authToken,
+          },
+          body: JSON.stringify({ image: imageData, prompt }),
+        });
+      } catch (fetchErr) {
+        throw new Error("[generate] Network error: " + (fetchErr.message || "could not reach server"));
+      }
 
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
+        const step = err.step || "generate";
         const detail = err.detail ? ` (${err.detail})` : "";
-        throw new Error((err.error || "Something went wrong") + detail);
+        throw new Error(`[${step}] ` + (err.error || "Something went wrong") + detail);
       }
 
       const data = await res.json();
@@ -414,7 +420,7 @@ async function describeDrawing(imageData) {
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    console.warn("Describe request failed:", res.status, err.detail || err.error || "");
+    console.warn("[describe] Request failed:", res.status, err.detail || err.error || "");
     return { caption: fallback, prompt: fallback, failed: true };
   }
 
@@ -438,7 +444,7 @@ async function describeDrawing(imageData) {
           headers: { "Authorization": "Bearer " + authToken },
         });
         if (!poll.ok) {
-          console.warn("Describe status poll failed:", poll.status);
+          console.warn("[describe] Status poll failed:", poll.status);
           continue;
         }
         const result = await poll.json();
@@ -454,7 +460,7 @@ async function describeDrawing(imageData) {
           continue;
         }
         if (result.status === "failed" || result.status === "canceled") {
-          console.warn("Describe prediction failed:", result.error || result.status);
+          console.warn("[describe] Prediction failed:", result.error || result.status);
           return { caption: fallback, prompt: fallback, failed: true };
         }
       } catch {
@@ -463,7 +469,7 @@ async function describeDrawing(imageData) {
     }
   }
 
-  console.warn("Describe polling timed out");
+  console.warn("[describe] Polling timed out");
   return { caption: fallback, prompt: fallback, failed: true };
 }
 
@@ -487,8 +493,8 @@ async function pollForResult(predictionId, prompt) {
         btnLoading.textContent = "Working the magic...";
         return;
       } else if (data.status === "failed" || data.status === "canceled") {
-        console.error("Generation prediction failed:", data.error);
-        throw new Error(data.error || "The magic didn't work this time. Try again!");
+        console.error("[poll] Generation prediction failed:", data.error);
+        throw new Error("[poll] " + (data.error || "The magic didn't work this time. Try again!"));
       }
       // else still processing, keep polling
     } catch (err) {
@@ -496,7 +502,7 @@ async function pollForResult(predictionId, prompt) {
       // network error, keep trying
     }
   }
-  throw new Error("This is taking too long. Try again with a simpler drawing!");
+  throw new Error("[poll] This is taking too long. Try again with a simpler drawing!");
 }
 
 function sleep(ms) {
