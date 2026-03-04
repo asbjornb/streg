@@ -7,5 +7,11 @@ compatibility_date = "2024-01-01"
 #   npx wrangler secret put FAMILY_PIN
 #   npx wrangler secret put AUTH_SECRET  (any random string for signing tokens)
 #
+[[kv_namespaces]]
+binding = "COST_LOG"
+id = "REPLACE_WITH_KV_NAMESPACE_ID"
+# Create with: npx wrangler kv namespace create COST_LOG
+# Then replace the id above with the output
+
 [vars]
 ALLOWED_ORIGIN = "https://streg.pages.dev"

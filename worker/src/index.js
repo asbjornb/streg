@@ -36,6 +36,10 @@ export default {
         return handleStatus(request, env, corsHeaders, id);
       }
 
+      if (url.pathname === "/costs" && request.method === "GET") {
+        return handleCosts(request, env, corsHeaders);
+      }
+
       return jsonResponse({ error: "Not found" }, 404, corsHeaders);
     } catch (err) {
       return jsonResponse({ error: "Internal error" }, 500, corsHeaders);
@@ -133,6 +137,7 @@ async function handleDescribe(request, env, cors) {
   let rawCaption = null;
 
   if (prediction.status === "succeeded" && prediction.output) {
+    try { await trackCost(prediction, env); } catch (e) { console.error("Cost tracking error:", e); }
     rawCaption = prediction.output.replace(/^Caption:\s*/i, "").trim();
   } else if (prediction.id) {
     // Poll for BLIP result (usually fast)
@@ -144,6 +149,7 @@ async function handleDescribe(request, env, cors) {
       );
       const result = await poll.json();
       if (result.status === "succeeded" && result.output) {
+        try { await trackCost(result, env); } catch (e) { console.error("Cost tracking error:", e); }
         rawCaption = (typeof result.output === "string" ? result.output : result.output.toString())
           .replace(/^Caption:\s*/i, "").trim();
         break;
@@ -167,6 +173,9 @@ async function handleDescribe(request, env, cors) {
 // === Enrich caption with a contrasting background using an LLM ===
 
 async function enrichCaption(caption, env) {
+  // Llama model via model endpoint — version resolved by Replicate
+  const LLAMA_MODEL_NAME = "meta-llama-3-8b";
+
   try {
     const res = await fetch("https://api.replicate.com/v1/models/meta/meta-llama-3-8b-instruct/predictions", {
       method: "POST",
@@ -190,6 +199,7 @@ async function enrichCaption(caption, env) {
 
     // If completed synchronously
     if (prediction.status === "succeeded" && prediction.output) {
+      try { await trackCost({ ...prediction, _model_name: LLAMA_MODEL_NAME }, env); } catch (e) { console.error("Cost tracking error:", e); }
       const text = Array.isArray(prediction.output) ? prediction.output.join("") : prediction.output;
       return text.trim().replace(/^["']|["']$/g, "") || caption;
     }
@@ -204,6 +214,7 @@ async function enrichCaption(caption, env) {
         );
         const result = await poll.json();
         if (result.status === "succeeded" && result.output) {
+          try { await trackCost({ ...result, _model_name: LLAMA_MODEL_NAME }, env); } catch (e) { console.error("Cost tracking error:", e); }
           const text = Array.isArray(result.output) ? result.output.join("") : result.output;
           return text.trim().replace(/^["']|["']$/g, "") || caption;
         }
@@ -298,12 +309,111 @@ async function handleStatus(request, env, cors, predictionId) {
   }
 
   const prediction = await res.json();
+
+  // Track cost when prediction completes
+  if (prediction.status === "succeeded" || prediction.status === "failed") {
+    try { await trackCost(prediction, env); } catch (e) { console.error("Cost tracking error:", e); }
+  }
+
   return jsonResponse({
     id: prediction.id,
     status: prediction.status,
     output: prediction.output,
     error: prediction.error,
   }, 200, cors);
+}
+
+// === Cost tracking ===
+
+// Replicate per-second costs by model version (approximate)
+const MODEL_COSTS = {
+  // ControlNet Scribble
+  "435061a1b5a4c1e26740464bf786efdfa9cb3a3ac488595a2de23e143fdb0117": { name: "controlnet-scribble", costPerSec: 0.00115 },
+  // BLIP-2
+  "2e1dddc8621f72155f24cf2e0adbde548458d3cab9f00c0139eea840d0ac4746": { name: "blip-2", costPerSec: 0.00115 },
+};
+
+// Default cost for models not in the map (e.g. Llama via model endpoint)
+const DEFAULT_COST_PER_SEC = 0.00050;
+
+async function trackCost(prediction, env) {
+  if (!env.COST_LOG) return;
+  if (prediction.status !== "succeeded") return;
+
+  const predictTime = prediction.metrics?.predict_time;
+  if (!predictTime) return;
+
+  // Determine model cost rate
+  const version = prediction.version || "unknown";
+  const modelName = prediction._model_name;
+  const model = modelName
+    ? { name: modelName, costPerSec: DEFAULT_COST_PER_SEC }
+    : MODEL_COSTS[version] || { name: "unknown", costPerSec: DEFAULT_COST_PER_SEC };
+  const cost = predictTime * model.costPerSec;
+
+  const entry = {
+    id: prediction.id,
+    model: model.name,
+    version,
+    predict_time: predictTime,
+    cost: Math.round(cost * 100000) / 100000, // 5 decimal places
+    timestamp: new Date().toISOString(),
+  };
+
+  // Structured log for wrangler tail
+  console.log("COST_TRACK", JSON.stringify(entry));
+
+  // Deduplicate: skip if already tracked
+  const existingEntry = await env.COST_LOG.get(`cost:${prediction.id}`);
+  if (existingEntry) return;
+
+  // Store individual entry (expires after 90 days)
+  await env.COST_LOG.put(`cost:${prediction.id}`, JSON.stringify(entry), { expirationTtl: 90 * 24 * 3600 });
+
+  // Update monthly total
+  const monthKey = `totals:${entry.timestamp.slice(0, 7)}`;
+  const existing = await env.COST_LOG.get(monthKey, "json") || { cost: 0, count: 0 };
+  existing.cost = Math.round((existing.cost + entry.cost) * 100000) / 100000;
+  existing.count += 1;
+  await env.COST_LOG.put(monthKey, JSON.stringify(existing));
+}
+
+// === Costs endpoint ===
+
+async function handleCosts(request, env, cors) {
+  if (!(await verifyToken(request, env))) {
+    return jsonResponse({ error: "Not authorized" }, 401, cors);
+  }
+
+  if (!env.COST_LOG) {
+    return jsonResponse({ error: "Cost tracking not configured" }, 501, cors);
+  }
+
+  const now = new Date();
+  const currentMonth = now.toISOString().slice(0, 7);
+
+  // Get monthly totals for current and previous month
+  const [currentTotals, prevMonth] = await Promise.all([
+    env.COST_LOG.get(`totals:${currentMonth}`, "json"),
+    env.COST_LOG.get(`totals:${prevMonthKey(now)}`, "json"),
+  ]);
+
+  // List recent cost entries
+  const list = await env.COST_LOG.list({ prefix: "cost:", limit: 20 });
+  const recent = await Promise.all(
+    list.keys.map(k => env.COST_LOG.get(k.name, "json"))
+  );
+
+  return jsonResponse({
+    current_month: { month: currentMonth, ...(currentTotals || { cost: 0, count: 0 }) },
+    previous_month: { month: prevMonthKey(now), ...(prevMonth || { cost: 0, count: 0 }) },
+    recent: recent.filter(Boolean).sort((a, b) => b.timestamp.localeCompare(a.timestamp)),
+  }, 200, cors);
+}
+
+function prevMonthKey(date) {
+  const d = new Date(date.getFullYear(), date.getMonth() - 1, 1);
+  return d.toISOString().slice(0, 7);
 }
 
 // === Helpers ===
