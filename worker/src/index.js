@@ -186,15 +186,39 @@ async function handleDescribeStatus(request, env, cors, predictionId) {
     const rawCaption = (typeof prediction.output === "string" ? prediction.output : prediction.output.toString())
       .replace(/^(Caption|Answer):\s*/i, "").trim();
 
-    // Enrich with LLM background prompt
-    const enriched = await enrichCaption(rawCaption, env);
+    // If frontend passed an enrich ID from a previous poll, check it
+    const enrichId = new URL(request.url).searchParams.get("enrich");
+    if (enrichId) {
+      const enrichResult = await checkEnrichment(enrichId, rawCaption, env);
+      return jsonResponse({
+        id: prediction.id,
+        status: "succeeded",
+        type: "describe",
+        subject: rawCaption,
+        prompt: enrichResult,
+      }, 200, cors);
+    }
 
+    // First time BLIP succeeded — kick off enrichment async, don't wait
+    const enrichPredictionId = await startEnrichment(rawCaption, env);
+
+    if (enrichPredictionId) {
+      return jsonResponse({
+        id: prediction.id,
+        status: "enriching",
+        type: "describe",
+        subject: rawCaption,
+        enrich_id: enrichPredictionId,
+      }, 200, cors);
+    }
+
+    // Enrichment failed to start — return raw caption as prompt
     return jsonResponse({
       id: prediction.id,
       status: "succeeded",
       type: "describe",
       subject: rawCaption,
-      prompt: enriched,
+      prompt: rawCaption,
     }, 200, cors);
   }
 
@@ -206,12 +230,12 @@ async function handleDescribeStatus(request, env, cors, predictionId) {
   }, 200, cors);
 }
 
-// === Enrich caption with a contrasting background using an LLM ===
+// === Enrich caption with a contrasting background using an LLM (async, non-blocking) ===
 
-async function enrichCaption(caption, env) {
-  // Llama model via model endpoint — version resolved by Replicate
-  const LLAMA_MODEL_NAME = "meta-llama-3-8b";
+const LLAMA_MODEL_NAME = "meta-llama-3-8b";
 
+// Fire off LLM enrichment, return prediction ID without waiting for result
+async function startEnrichment(caption, env) {
   try {
     const res = await fetch("https://api.replicate.com/v1/models/meta/meta-llama-3-8b-instruct/predictions", {
       method: "POST",
@@ -229,41 +253,43 @@ async function enrichCaption(caption, env) {
       }),
     });
 
-    if (!res.ok) return caption;
+    if (!res.ok) return null;
 
     const prediction = await res.json();
 
-    // If completed synchronously
-    if (prediction.status === "succeeded" && prediction.output) {
-      try { await trackCost({ ...prediction, _model_name: LLAMA_MODEL_NAME }, env); } catch (e) { console.error("Cost tracking error:", e); }
-      const text = Array.isArray(prediction.output) ? prediction.output.join("") : prediction.output;
-      return text.trim().replace(/^["']|["']$/g, "") || caption;
-    }
+    // If completed synchronously (rare but possible)
+    if (prediction.status === "succeeded") return prediction.id;
 
-    // Poll for result
-    if (prediction.id) {
-      for (let i = 0; i < 15; i++) {
-        await new Promise(r => setTimeout(r, 1000));
-        const poll = await fetch(
-          `https://api.replicate.com/v1/predictions/${prediction.id}`,
-          { headers: { "Authorization": "Bearer " + env.REPLICATE_API_TOKEN } }
-        );
-        const result = await poll.json();
-        if (result.status === "succeeded" && result.output) {
-          try { await trackCost({ ...result, _model_name: LLAMA_MODEL_NAME }, env); } catch (e) { console.error("Cost tracking error:", e); }
-          const text = Array.isArray(result.output) ? result.output.join("") : result.output;
-          return text.trim().replace(/^["']|["']$/g, "") || caption;
-        }
-        if (result.status === "failed" || result.status === "canceled") {
-          return caption;
-        }
-      }
-    }
-
-    return caption;
+    return prediction.id || null;
   } catch {
-    // If LLM enrichment fails for any reason, just use the raw caption
-    return caption;
+    return null;
+  }
+}
+
+// Check enrichment prediction once — return enriched prompt or fallback to raw caption
+async function checkEnrichment(enrichId, fallback, env) {
+  if (!/^[a-z0-9]+$/.test(enrichId)) return fallback;
+
+  try {
+    const res = await fetch(
+      `https://api.replicate.com/v1/predictions/${enrichId}`,
+      { headers: { "Authorization": "Bearer " + env.REPLICATE_API_TOKEN } }
+    );
+
+    if (!res.ok) return fallback;
+
+    const result = await res.json();
+
+    if (result.status === "succeeded" && result.output) {
+      try { await trackCost({ ...result, _model_name: LLAMA_MODEL_NAME }, env); } catch (e) { console.error("Cost tracking error:", e); }
+      const text = Array.isArray(result.output) ? result.output.join("") : result.output;
+      return text.trim().replace(/^["']|["']$/g, "") || fallback;
+    }
+
+    // Still processing or failed — return raw caption, don't block
+    return fallback;
+  } catch {
+    return fallback;
   }
 }
 

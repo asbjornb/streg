@@ -408,11 +408,14 @@ async function describeDrawing(imageData) {
 
   // Poll for describe result
   if (data.id) {
+    let enrichId = null;
     const maxAttempts = 30; // 60 seconds max
     for (let i = 0; i < maxAttempts; i++) {
       await sleep(2000);
       try {
-        const poll = await fetch(WORKER_URL + "/describe/status/" + data.id, {
+        let statusUrl = WORKER_URL + "/describe/status/" + data.id;
+        if (enrichId) statusUrl += "?enrich=" + enrichId;
+        const poll = await fetch(statusUrl, {
           headers: { "Authorization": "Bearer " + authToken },
         });
         if (!poll.ok) continue;
@@ -422,6 +425,11 @@ async function describeDrawing(imageData) {
             caption: result.subject || fallback,
             prompt: result.prompt || result.subject || fallback,
           };
+        }
+        if (result.status === "enriching") {
+          // BLIP done, LLM enrichment kicked off — retry with enrich ID
+          enrichId = result.enrich_id;
+          continue;
         }
         if (result.status === "failed" || result.status === "canceled") {
           return { caption: fallback, prompt: fallback };
