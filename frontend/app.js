@@ -343,8 +343,10 @@ function setupSubmit() {
       // If no prompt, auto-detect what the drawing looks like
       if (!prompt) {
         btnLoading.textContent = "Looking at your drawing...";
-        prompt = await describeDrawing(imageData);
-        document.getElementById("prompt-input").value = prompt;
+        const described = await describeDrawing(imageData);
+        // Show the simple caption to the user, but use the enriched prompt for generation
+        document.getElementById("prompt-input").value = described.caption;
+        prompt = described.prompt;
       }
 
       // Send to worker
@@ -391,13 +393,17 @@ async function describeDrawing(imageData) {
     body: JSON.stringify({ image: imageData }),
   });
 
+  const fallback = "a colorful children's drawing";
+
   if (!res.ok) {
-    // Fall back to a generic prompt if description fails
-    return "a colorful children's drawing";
+    return { caption: fallback, prompt: fallback };
   }
 
   const data = await res.json();
-  return data.caption || "a colorful children's drawing";
+  return {
+    caption: data.caption || fallback,
+    prompt: data.prompt || data.caption || fallback,
+  };
 }
 
 async function pollForResult(predictionId, prompt) {

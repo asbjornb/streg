@@ -129,14 +129,13 @@ async function handleDescribe(request, env, cors) {
 
   const prediction = await res.json();
 
-  // If the prediction completed synchronously
-  if (prediction.status === "succeeded" && prediction.output) {
-    const caption = prediction.output.replace(/^Caption:\s*/i, "").trim();
-    return jsonResponse({ caption }, 200, cors);
-  }
+  // Get the raw caption from BLIP
+  let rawCaption = null;
 
-  // Otherwise poll for it (BLIP is usually fast)
-  if (prediction.id) {
+  if (prediction.status === "succeeded" && prediction.output) {
+    rawCaption = prediction.output.replace(/^Caption:\s*/i, "").trim();
+  } else if (prediction.id) {
+    // Poll for BLIP result (usually fast)
     for (let i = 0; i < 15; i++) {
       await new Promise(r => setTimeout(r, 1000));
       const poll = await fetch(
@@ -145,18 +144,80 @@ async function handleDescribe(request, env, cors) {
       );
       const result = await poll.json();
       if (result.status === "succeeded" && result.output) {
-        const caption = (typeof result.output === "string" ? result.output : result.output.toString())
+        rawCaption = (typeof result.output === "string" ? result.output : result.output.toString())
           .replace(/^Caption:\s*/i, "").trim();
-        return jsonResponse({ caption }, 200, cors);
+        break;
       }
       if (result.status === "failed" || result.status === "canceled") {
         return jsonResponse({ error: "Could not describe the drawing" }, 502, cors);
       }
     }
-    return jsonResponse({ error: "Description took too long" }, 504, cors);
   }
 
-  return jsonResponse({ error: "Unexpected response from AI" }, 502, cors);
+  if (!rawCaption) {
+    return jsonResponse({ error: "Could not describe the drawing" }, 502, cors);
+  }
+
+  // Use an LLM to enrich the caption with a fitting, contrasting background
+  const enriched = await enrichCaption(rawCaption, env);
+
+  return jsonResponse({ caption: rawCaption, prompt: enriched }, 200, cors);
+}
+
+// === Enrich caption with a contrasting background using an LLM ===
+
+async function enrichCaption(caption, env) {
+  try {
+    const res = await fetch("https://api.replicate.com/v1/models/meta/meta-llama-3-8b-instruct/predictions", {
+      method: "POST",
+      headers: {
+        "Authorization": "Bearer " + env.REPLICATE_API_TOKEN,
+        "Content-Type": "application/json",
+        "Prefer": "respond-async",
+      },
+      body: JSON.stringify({
+        input: {
+          prompt: `A child drew "${caption}". Write a short image generation prompt (under 20 words) that describes this subject with a fitting, colorful background that contrasts with the subject so it stands out clearly. Only output the prompt, nothing else.`,
+          max_tokens: 60,
+          temperature: 0.7,
+        },
+      }),
+    });
+
+    if (!res.ok) return caption;
+
+    const prediction = await res.json();
+
+    // If completed synchronously
+    if (prediction.status === "succeeded" && prediction.output) {
+      const text = Array.isArray(prediction.output) ? prediction.output.join("") : prediction.output;
+      return text.trim().replace(/^["']|["']$/g, "") || caption;
+    }
+
+    // Poll for result
+    if (prediction.id) {
+      for (let i = 0; i < 15; i++) {
+        await new Promise(r => setTimeout(r, 1000));
+        const poll = await fetch(
+          `https://api.replicate.com/v1/predictions/${prediction.id}`,
+          { headers: { "Authorization": "Bearer " + env.REPLICATE_API_TOKEN } }
+        );
+        const result = await poll.json();
+        if (result.status === "succeeded" && result.output) {
+          const text = Array.isArray(result.output) ? result.output.join("") : result.output;
+          return text.trim().replace(/^["']|["']$/g, "") || caption;
+        }
+        if (result.status === "failed" || result.status === "canceled") {
+          return caption;
+        }
+      }
+    }
+
+    return caption;
+  } catch {
+    // If LLM enrichment fails for any reason, just use the raw caption
+    return caption;
+  }
 }
 
 // === Generate: send drawing to Replicate ===
@@ -191,8 +252,8 @@ async function handleGenerate(request, env, cors) {
         scale: 9,
         seed: Math.floor(Math.random() * 2147483647),
         eta: 0,
-        a_prompt: "best quality, extremely detailed, colorful, vibrant",
-        n_prompt: "longbody, lowres, bad anatomy, bad hands, missing fingers, extra digit, fewer digits, cropped, worst quality, low quality",
+        a_prompt: "best quality, extremely detailed, colorful, vibrant, subject clearly distinct from background, contrasting background, well-defined edges",
+        n_prompt: "longbody, lowres, bad anatomy, bad hands, missing fingers, extra digit, fewer digits, cropped, worst quality, low quality, subject blending into background, uniform texture, monochrome background",
       },
     }),
   });
