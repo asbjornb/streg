@@ -344,9 +344,9 @@ function setupSubmit() {
       if (!prompt) {
         btnLoading.textContent = "Looking at your drawing...";
         const described = await describeDrawing(imageData);
-        // Show the simple caption to the user, but use the enriched prompt for generation
-        document.getElementById("prompt-input").value = described.caption;
+        // Show the full enriched prompt so users can see what the AI came up with
         prompt = described.prompt;
+        document.getElementById("prompt-input").value = prompt;
       }
 
       // Send to worker
