@@ -133,11 +133,12 @@ async function handleDescribe(request, env, cors) {
   });
 
   if (!res.ok) {
-    const err = await res.text();
-    console.error("Replicate describe error:", res.status, err);
+    const body = await res.text();
+    const detail = parseReplicateError(res.status, body);
+    console.error("Replicate describe error:", res.status, body);
     return jsonResponse({
       error: "AI service error",
-      detail: `Replicate returned ${res.status}`,
+      detail,
       replicate_status: res.status,
     }, 502, cors);
   }
@@ -168,7 +169,10 @@ async function handleDescribeStatus(request, env, cors, predictionId) {
   );
 
   if (!res.ok) {
-    return jsonResponse({ error: "Could not check status" }, 502, cors);
+    const body = await res.text();
+    const detail = parseReplicateError(res.status, body);
+    console.error("Replicate describe status check error:", res.status, body);
+    return jsonResponse({ error: "Could not check status", detail }, 502, cors);
   }
 
   const prediction = await res.json();
@@ -338,11 +342,12 @@ async function handleGenerate(request, env, cors) {
   });
 
   if (!res.ok) {
-    const err = await res.text();
-    console.error("Replicate generate error:", res.status, err);
+    const body = await res.text();
+    const detail = parseReplicateError(res.status, body);
+    console.error("Replicate generate error:", res.status, body);
     return jsonResponse({
       error: "AI service error",
-      detail: `Replicate returned ${res.status}`,
+      detail,
       replicate_status: res.status,
     }, 502, cors);
   }
@@ -377,7 +382,10 @@ async function handleStatus(request, env, cors, predictionId) {
   );
 
   if (!res.ok) {
-    return jsonResponse({ error: "Could not check status" }, 502, cors);
+    const body = await res.text();
+    const detail = parseReplicateError(res.status, body);
+    console.error("Replicate status check error:", res.status, body);
+    return jsonResponse({ error: "Could not check status", detail }, 502, cors);
   }
 
   const prediction = await res.json();
@@ -489,6 +497,19 @@ function prevMonthKey(date) {
 }
 
 // === Helpers ===
+
+function parseReplicateError(httpStatus, body) {
+  try {
+    const json = JSON.parse(body);
+    // Replicate returns { detail: "..." } on most errors
+    if (json.detail) return `Replicate ${httpStatus}: ${json.detail}`;
+    if (json.title) return `Replicate ${httpStatus}: ${json.title}`;
+  } catch {
+    // not JSON
+  }
+  const trimmed = body.slice(0, 200).trim();
+  return trimmed ? `Replicate ${httpStatus}: ${trimmed}` : `Replicate returned HTTP ${httpStatus}`;
+}
 
 function jsonResponse(data, status, cors) {
   return new Response(JSON.stringify(data), {
