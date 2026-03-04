@@ -1,0 +1,186 @@
+// Streg API Worker
+// Proxies drawing requests to Replicate's ControlNet Scribble model
+// with simple PIN-based family auth.
+
+export default {
+  async fetch(request, env) {
+    const url = new URL(request.url);
+    const origin = request.headers.get("Origin") || "";
+
+    // CORS headers
+    const corsHeaders = {
+      "Access-Control-Allow-Origin": env.ALLOWED_ORIGIN || origin,
+      "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type, Authorization",
+    };
+
+    if (request.method === "OPTIONS") {
+      return new Response(null, { status: 204, headers: corsHeaders });
+    }
+
+    try {
+      if (url.pathname === "/auth" && request.method === "POST") {
+        return handleAuth(request, env, corsHeaders);
+      }
+
+      if (url.pathname === "/generate" && request.method === "POST") {
+        return handleGenerate(request, env, corsHeaders);
+      }
+
+      if (url.pathname.startsWith("/status/") && request.method === "GET") {
+        const id = url.pathname.split("/status/")[1];
+        return handleStatus(request, env, corsHeaders, id);
+      }
+
+      return jsonResponse({ error: "Not found" }, 404, corsHeaders);
+    } catch (err) {
+      return jsonResponse({ error: "Internal error" }, 500, corsHeaders);
+    }
+  },
+};
+
+// === Auth: verify PIN, return a simple signed token ===
+
+async function handleAuth(request, env, cors) {
+  const { pin } = await request.json();
+
+  if (!pin || pin !== env.FAMILY_PIN) {
+    return jsonResponse({ ok: false }, 401, cors);
+  }
+
+  // Create a simple token: timestamp + HMAC
+  const timestamp = Date.now().toString();
+  const token = timestamp + "." + await sign(timestamp, env.AUTH_SECRET);
+
+  return jsonResponse({ ok: true, token }, 200, cors);
+}
+
+async function verifyToken(request, env) {
+  const authHeader = request.headers.get("Authorization") || "";
+  const token = authHeader.replace("Bearer ", "");
+
+  if (!token || !token.includes(".")) return false;
+
+  const [timestamp, signature] = token.split(".");
+  const expected = await sign(timestamp, env.AUTH_SECRET);
+
+  if (signature !== expected) return false;
+
+  // Tokens valid for 24 hours
+  const age = Date.now() - parseInt(timestamp, 10);
+  return age < 24 * 60 * 60 * 1000;
+}
+
+async function sign(data, secret) {
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    "raw",
+    encoder.encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
+  const sig = await crypto.subtle.sign("HMAC", key, encoder.encode(data));
+  return btoa(String.fromCharCode(...new Uint8Array(sig)))
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+}
+
+// === Generate: send drawing to Replicate ===
+
+async function handleGenerate(request, env, cors) {
+  if (!(await verifyToken(request, env))) {
+    return jsonResponse({ error: "Not authorized" }, 401, cors);
+  }
+
+  const { image, prompt } = await request.json();
+
+  if (!image || !prompt) {
+    return jsonResponse({ error: "Need both image and prompt" }, 400, cors);
+  }
+
+  // Call Replicate API to create a prediction
+  const res = await fetch("https://api.replicate.com/v1/predictions", {
+    method: "POST",
+    headers: {
+      "Authorization": "Bearer " + env.REPLICATE_API_TOKEN,
+      "Content-Type": "application/json",
+      "Prefer": "respond-async",
+    },
+    body: JSON.stringify({
+      version: "435061a1b5a4c1e26740464bf786efdfa9cb3a3ac488595a2de23e143fdb0117",
+      input: {
+        image,
+        prompt,
+        num_samples: "1",
+        image_resolution: "512",
+        ddim_steps: 20,
+        scale: 9,
+        seed: Math.floor(Math.random() * 2147483647),
+        eta: 0,
+        a_prompt: "best quality, extremely detailed, colorful, vibrant",
+        n_prompt: "longbody, lowres, bad anatomy, bad hands, missing fingers, extra digit, fewer digits, cropped, worst quality, low quality",
+      },
+    }),
+  });
+
+  if (!res.ok) {
+    const err = await res.text();
+    console.error("Replicate error:", err);
+    return jsonResponse({ error: "AI service error" }, 502, cors);
+  }
+
+  const prediction = await res.json();
+  return jsonResponse({
+    id: prediction.id,
+    status: prediction.status,
+    output: prediction.output,
+  }, 200, cors);
+}
+
+// === Status: poll for prediction result ===
+
+async function handleStatus(request, env, cors, predictionId) {
+  if (!(await verifyToken(request, env))) {
+    return jsonResponse({ error: "Not authorized" }, 401, cors);
+  }
+
+  // Sanitize prediction ID
+  if (!/^[a-z0-9]+$/.test(predictionId)) {
+    return jsonResponse({ error: "Invalid ID" }, 400, cors);
+  }
+
+  const res = await fetch(
+    `https://api.replicate.com/v1/predictions/${predictionId}`,
+    {
+      headers: {
+        "Authorization": "Bearer " + env.REPLICATE_API_TOKEN,
+      },
+    }
+  );
+
+  if (!res.ok) {
+    return jsonResponse({ error: "Could not check status" }, 502, cors);
+  }
+
+  const prediction = await res.json();
+  return jsonResponse({
+    id: prediction.id,
+    status: prediction.status,
+    output: prediction.output,
+    error: prediction.error,
+  }, 200, cors);
+}
+
+// === Helpers ===
+
+function jsonResponse(data, status, cors) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: {
+      "Content-Type": "application/json",
+      ...cors,
+    },
+  });
+}

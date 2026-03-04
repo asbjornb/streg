@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Streg - Draw &amp; Imagine</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="app">
+    <header>
+      <h1>Streg</h1>
+      <p class="tagline">Draw something, then let the magic fill it in!</p>
+    </header>
+
+    <!-- PIN screen -->
+    <div id="pin-screen" class="screen">
+      <div class="pin-box">
+        <h2>Enter the family code</h2>
+        <input type="password" id="pin-input" maxlength="20" inputmode="numeric" autocomplete="off" placeholder="****">
+        <button id="pin-submit" class="btn btn-primary">Go!</button>
+        <p id="pin-error" class="error" hidden>Hmm, that's not right. Try again!</p>
+      </div>
+    </div>
+
+    <!-- Drawing screen -->
+    <div id="draw-screen" class="screen" hidden>
+      <div class="toolbar">
+        <div class="tool-group">
+          <label class="tool-label">Brush</label>
+          <input type="range" id="brush-size" min="2" max="30" value="6">
+        </div>
+
+        <div class="tool-group colors">
+          <label class="tool-label">Color</label>
+          <div id="color-palette"></div>
+        </div>
+
+        <div class="tool-group">
+          <button id="eraser-btn" class="btn btn-tool" title="Eraser">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 20H7L3 16c-.8-.8-.8-2 0-2.8L14.6 1.6c.8-.8 2-.8 2.8 0L21 5.2c.8.8.8 2 0 2.8L12 17"/></svg>
+          </button>
+          <button id="undo-btn" class="btn btn-tool" title="Undo">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 10h10a5 5 0 0 1 0 10H3"/><path d="M3 10l4-4M3 10l4 4"/></svg>
+          </button>
+          <button id="clear-btn" class="btn btn-tool" title="Start over">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4h8v2M5 6l1 14h12l1-14"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <div class="canvas-area">
+        <canvas id="drawing-canvas"></canvas>
+        <div id="saving-indicator" class="saving-indicator" hidden>Saved!</div>
+      </div>
+
+      <div class="prompt-area">
+        <input type="text" id="prompt-input" placeholder="Describe what you drew... (e.g. a castle on a hill)" maxlength="200">
+        <button id="submit-btn" class="btn btn-primary btn-magic">
+          <span class="btn-text">Make it real!</span>
+          <span class="btn-loading" hidden>Working the magic...</span>
+        </button>
+      </div>
+
+      <!-- Results area -->
+      <div id="results-area" hidden>
+        <h2>Your creation</h2>
+        <div id="results-gallery"></div>
+      </div>
+
+      <!-- History -->
+      <div id="history-area" hidden>
+        <h2>Past creations</h2>
+        <div id="history-gallery"></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
