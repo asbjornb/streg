@@ -288,12 +288,14 @@ header h1 {
   background: var(--surface);
   border-radius: var(--radius);
   box-shadow: var(--shadow);
+  border: 2px solid var(--border);
   overflow: hidden;
 }
 
 .result-card img {
   width: 100%;
   display: block;
+  background: #e5e0d8;
 }
 
 .result-card .result-prompt {

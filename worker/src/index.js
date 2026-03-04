@@ -23,6 +23,10 @@ export default {
         return handleAuth(request, env, corsHeaders);
       }
 
+      if (url.pathname === "/describe" && request.method === "POST") {
+        return handleDescribe(request, env, corsHeaders);
+      }
+
       if (url.pathname === "/generate" && request.method === "POST") {
         return handleGenerate(request, env, corsHeaders);
       }
@@ -85,6 +89,74 @@ async function sign(data, secret) {
     .replace(/\+/g, "-")
     .replace(/\//g, "_")
     .replace(/=+$/, "");
+}
+
+// === Describe: use BLIP to caption a scribble drawing ===
+
+async function handleDescribe(request, env, cors) {
+  if (!(await verifyToken(request, env))) {
+    return jsonResponse({ error: "Not authorized" }, 401, cors);
+  }
+
+  const { image } = await request.json();
+
+  if (!image) {
+    return jsonResponse({ error: "Need an image" }, 400, cors);
+  }
+
+  // Use BLIP-2 to caption the drawing
+  const res = await fetch("https://api.replicate.com/v1/predictions", {
+    method: "POST",
+    headers: {
+      "Authorization": "Bearer " + env.REPLICATE_API_TOKEN,
+      "Content-Type": "application/json",
+      "Prefer": "respond-async",
+    },
+    body: JSON.stringify({
+      version: "2e1dddc8621f72155f24cf2e0adbde548458d3cab9f00c0139eea840d0ac4746",
+      input: {
+        image,
+        task: "image_captioning",
+      },
+    }),
+  });
+
+  if (!res.ok) {
+    const err = await res.text();
+    console.error("Replicate describe error:", err);
+    return jsonResponse({ error: "AI service error" }, 502, cors);
+  }
+
+  const prediction = await res.json();
+
+  // If the prediction completed synchronously
+  if (prediction.status === "succeeded" && prediction.output) {
+    const caption = prediction.output.replace(/^Caption:\s*/i, "").trim();
+    return jsonResponse({ caption }, 200, cors);
+  }
+
+  // Otherwise poll for it (BLIP is usually fast)
+  if (prediction.id) {
+    for (let i = 0; i < 15; i++) {
+      await new Promise(r => setTimeout(r, 1000));
+      const poll = await fetch(
+        `https://api.replicate.com/v1/predictions/${prediction.id}`,
+        { headers: { "Authorization": "Bearer " + env.REPLICATE_API_TOKEN } }
+      );
+      const result = await poll.json();
+      if (result.status === "succeeded" && result.output) {
+        const caption = (typeof result.output === "string" ? result.output : result.output.toString())
+          .replace(/^Caption:\s*/i, "").trim();
+        return jsonResponse({ caption }, 200, cors);
+      }
+      if (result.status === "failed" || result.status === "canceled") {
+        return jsonResponse({ error: "Could not describe the drawing" }, 502, cors);
+      }
+    }
+    return jsonResponse({ error: "Description took too long" }, 504, cors);
+  }
+
+  return jsonResponse({ error: "Unexpected response from AI" }, 502, cors);
 }
 
 // === Generate: send drawing to Replicate ===

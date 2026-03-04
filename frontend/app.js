@@ -325,12 +325,7 @@ function setupSubmit() {
   const btnLoading = btn.querySelector(".btn-loading");
 
   btn.addEventListener("click", async () => {
-    const prompt = document.getElementById("prompt-input").value.trim();
-    if (!prompt) {
-      document.getElementById("prompt-input").focus();
-      document.getElementById("prompt-input").placeholder = "Please describe your drawing first!";
-      return;
-    }
+    let prompt = document.getElementById("prompt-input").value.trim();
 
     if (!WORKER_URL) {
       alert("Worker URL not configured. See README for setup instructions.");
@@ -345,7 +340,15 @@ function setupSubmit() {
       // Get the canvas as a base64 PNG
       const imageData = canvas.toDataURL("image/png");
 
+      // If no prompt, auto-detect what the drawing looks like
+      if (!prompt) {
+        btnLoading.textContent = "Looking at your drawing...";
+        prompt = await describeDrawing(imageData);
+        document.getElementById("prompt-input").value = prompt;
+      }
+
       // Send to worker
+      btnLoading.textContent = "Working the magic...";
       const res = await fetch(WORKER_URL + "/generate", {
         method: "POST",
         headers: {
@@ -376,6 +379,25 @@ function setupSubmit() {
       btnLoading.hidden = true;
     }
   });
+}
+
+async function describeDrawing(imageData) {
+  const res = await fetch(WORKER_URL + "/describe", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": "Bearer " + authToken,
+    },
+    body: JSON.stringify({ image: imageData }),
+  });
+
+  if (!res.ok) {
+    // Fall back to a generic prompt if description fails
+    return "a colorful children's drawing";
+  }
+
+  const data = await res.json();
+  return data.caption || "a colorful children's drawing";
 }
 
 async function pollForResult(predictionId, prompt) {
