@@ -7,6 +7,5 @@ compatibility_date = "2024-01-01"
 #   npx wrangler secret put FAMILY_PIN
 #   npx wrangler secret put AUTH_SECRET  (any random string for signing tokens)
 #
-# Optionally set allowed origins:
-# [vars]
-# ALLOWED_ORIGIN = "https://streg.app"
+[vars]
+ALLOWED_ORIGIN = "https://streg.pages.dev"

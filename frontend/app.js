@@ -1,5 +1,6 @@
 // === Configuration ===
 // Set this to your Cloudflare Worker URL after deploying
+// After first deploy, replace this with your actual worker URL (e.g. https://streg-api.<account>.workers.dev)
 const WORKER_URL = localStorage.getItem("streg_worker_url") || "";
 
 // === Color palette - a nice set for kids ===
