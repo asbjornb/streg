@@ -27,6 +27,11 @@ export default {
         return handleDescribe(request, env, corsHeaders);
       }
 
+      if (url.pathname.startsWith("/describe/status/") && request.method === "GET") {
+        const id = url.pathname.split("/describe/status/")[1];
+        return handleDescribeStatus(request, env, corsHeaders, id);
+      }
+
       if (url.pathname === "/generate" && request.method === "POST") {
         return handleGenerate(request, env, corsHeaders);
       }
@@ -95,7 +100,7 @@ async function sign(data, secret) {
     .replace(/=+$/, "");
 }
 
-// === Describe: use BLIP to caption a scribble drawing ===
+// === Describe: use BLIP to caption a scribble drawing (async) ===
 
 async function handleDescribe(request, env, cors) {
   if (!(await verifyToken(request, env))) {
@@ -134,41 +139,71 @@ async function handleDescribe(request, env, cors) {
 
   const prediction = await res.json();
 
-  // Get the raw caption from BLIP
-  let rawCaption = null;
+  return jsonResponse({
+    id: prediction.id,
+    status: prediction.status || "starting",
+    type: "describe",
+  }, 200, cors);
+}
+
+// === Describe Status: poll BLIP prediction, enrich when done ===
+
+async function handleDescribeStatus(request, env, cors, predictionId) {
+  if (!(await verifyToken(request, env))) {
+    return jsonResponse({ error: "Not authorized" }, 401, cors);
+  }
+
+  if (!/^[a-z0-9]+$/.test(predictionId)) {
+    return jsonResponse({ error: "Invalid ID" }, 400, cors);
+  }
+
+  const res = await fetch(
+    `https://api.replicate.com/v1/predictions/${predictionId}`,
+    { headers: { "Authorization": "Bearer " + env.REPLICATE_API_TOKEN } }
+  );
+
+  if (!res.ok) {
+    return jsonResponse({ error: "Could not check status" }, 502, cors);
+  }
+
+  const prediction = await res.json();
+
+  // Track cost when prediction completes
+  if (prediction.status === "succeeded" || prediction.status === "failed") {
+    try { await trackCost(prediction, env); } catch (e) { console.error("Cost tracking error:", e); }
+  }
+
+  if (prediction.status === "failed" || prediction.status === "canceled") {
+    return jsonResponse({
+      id: prediction.id,
+      status: prediction.status,
+      type: "describe",
+      error: prediction.error || "Could not describe the drawing",
+    }, 200, cors);
+  }
 
   if (prediction.status === "succeeded" && prediction.output) {
-    try { await trackCost(prediction, env); } catch (e) { console.error("Cost tracking error:", e); }
-    rawCaption = prediction.output.replace(/^(Caption|Answer):\s*/i, "").trim();
-  } else if (prediction.id) {
-    // Poll for BLIP result (usually fast)
-    for (let i = 0; i < 15; i++) {
-      await new Promise(r => setTimeout(r, 1000));
-      const poll = await fetch(
-        `https://api.replicate.com/v1/predictions/${prediction.id}`,
-        { headers: { "Authorization": "Bearer " + env.REPLICATE_API_TOKEN } }
-      );
-      const result = await poll.json();
-      if (result.status === "succeeded" && result.output) {
-        try { await trackCost(result, env); } catch (e) { console.error("Cost tracking error:", e); }
-        rawCaption = (typeof result.output === "string" ? result.output : result.output.toString())
-          .replace(/^(Caption|Answer):\s*/i, "").trim();
-        break;
-      }
-      if (result.status === "failed" || result.status === "canceled") {
-        return jsonResponse({ error: "Could not describe the drawing" }, 502, cors);
-      }
-    }
+    const rawCaption = (typeof prediction.output === "string" ? prediction.output : prediction.output.toString())
+      .replace(/^(Caption|Answer):\s*/i, "").trim();
+
+    // Enrich with LLM background prompt
+    const enriched = await enrichCaption(rawCaption, env);
+
+    return jsonResponse({
+      id: prediction.id,
+      status: "succeeded",
+      type: "describe",
+      subject: rawCaption,
+      prompt: enriched,
+    }, 200, cors);
   }
 
-  if (!rawCaption) {
-    return jsonResponse({ error: "Could not describe the drawing" }, 502, cors);
-  }
-
-  // Use an LLM to enrich the caption with a fitting, contrasting background
-  const enriched = await enrichCaption(rawCaption, env);
-
-  return jsonResponse({ caption: rawCaption, prompt: enriched }, 200, cors);
+  // Still processing
+  return jsonResponse({
+    id: prediction.id,
+    status: prediction.status,
+    type: "describe",
+  }, 200, cors);
 }
 
 // === Enrich caption with a contrasting background using an LLM ===

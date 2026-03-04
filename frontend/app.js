@@ -384,6 +384,8 @@ function setupSubmit() {
 }
 
 async function describeDrawing(imageData) {
+  const fallback = "a colorful children's drawing";
+
   const res = await fetch(WORKER_URL + "/describe", {
     method: "POST",
     headers: {
@@ -393,17 +395,44 @@ async function describeDrawing(imageData) {
     body: JSON.stringify({ image: imageData }),
   });
 
-  const fallback = "a colorful children's drawing";
-
   if (!res.ok) {
     return { caption: fallback, prompt: fallback };
   }
 
   const data = await res.json();
-  return {
-    caption: data.caption || fallback,
-    prompt: data.prompt || data.caption || fallback,
-  };
+
+  // If already completed (unlikely but handle it)
+  if (data.subject && data.prompt) {
+    return { caption: data.subject, prompt: data.prompt };
+  }
+
+  // Poll for describe result
+  if (data.id) {
+    const maxAttempts = 30; // 60 seconds max
+    for (let i = 0; i < maxAttempts; i++) {
+      await sleep(2000);
+      try {
+        const poll = await fetch(WORKER_URL + "/describe/status/" + data.id, {
+          headers: { "Authorization": "Bearer " + authToken },
+        });
+        if (!poll.ok) continue;
+        const result = await poll.json();
+        if (result.status === "succeeded") {
+          return {
+            caption: result.subject || fallback,
+            prompt: result.prompt || result.subject || fallback,
+          };
+        }
+        if (result.status === "failed" || result.status === "canceled") {
+          return { caption: fallback, prompt: fallback };
+        }
+      } catch {
+        // Network error, keep polling
+      }
+    }
+  }
+
+  return { caption: fallback, prompt: fallback };
 }
 
 async function pollForResult(predictionId, prompt) {
