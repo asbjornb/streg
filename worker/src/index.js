@@ -108,7 +108,7 @@ async function handleDescribe(request, env, cors) {
     return jsonResponse({ error: "Need an image" }, 400, cors);
   }
 
-  // Use BLIP-2 to caption the drawing
+  // Use BLIP-2 in VQA mode to identify subjects without medium/style words
   const res = await fetch("https://api.replicate.com/v1/predictions", {
     method: "POST",
     headers: {
@@ -120,7 +120,8 @@ async function handleDescribe(request, env, cors) {
       version: "2e1dddc8621f72155f24cf2e0adbde548458d3cab9f00c0139eea840d0ac4746",
       input: {
         image,
-        task: "image_captioning",
+        task: "visual_question_answering",
+        question: "What are the main objects? Answer with the nouns/objects, no mention of drawing/sketch/black-and-white or other medium style words.",
       },
     }),
   });
@@ -138,7 +139,7 @@ async function handleDescribe(request, env, cors) {
 
   if (prediction.status === "succeeded" && prediction.output) {
     try { await trackCost(prediction, env); } catch (e) { console.error("Cost tracking error:", e); }
-    rawCaption = prediction.output.replace(/^Caption:\s*/i, "").trim();
+    rawCaption = prediction.output.replace(/^(Caption|Answer):\s*/i, "").trim();
   } else if (prediction.id) {
     // Poll for BLIP result (usually fast)
     for (let i = 0; i < 15; i++) {
@@ -151,7 +152,7 @@ async function handleDescribe(request, env, cors) {
       if (result.status === "succeeded" && result.output) {
         try { await trackCost(result, env); } catch (e) { console.error("Cost tracking error:", e); }
         rawCaption = (typeof result.output === "string" ? result.output : result.output.toString())
-          .replace(/^Caption:\s*/i, "").trim();
+          .replace(/^(Caption|Answer):\s*/i, "").trim();
         break;
       }
       if (result.status === "failed" || result.status === "canceled") {
