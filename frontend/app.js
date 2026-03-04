@@ -345,8 +345,14 @@ function setupSubmit() {
         btnLoading.textContent = "Looking at your drawing...";
         const described = await describeDrawing(imageData);
         if (described.failed) {
-          btnLoading.textContent = "Couldn't auto-describe — using a default. You can type your own!";
-          await sleep(2000);
+          // Don't auto-submit a bad fallback — let the user type their own
+          document.getElementById("prompt-input").value = "";
+          document.getElementById("prompt-input").setAttribute("placeholder", "Auto-describe didn't work — type what you drew!");
+          document.getElementById("prompt-input").focus();
+          btn.disabled = false;
+          btnText.hidden = false;
+          btnLoading.hidden = true;
+          return;
         }
         // Show the full enriched prompt so users can see what the AI came up with
         prompt = described.prompt;
@@ -381,9 +387,7 @@ function setupSubmit() {
     } catch (err) {
       console.error("Generation error:", err);
       const msg = err.message || "Unknown error";
-      if (msg.includes("502") || msg.includes("AI service error")) {
-        alert("The AI model might be waking up — this can take a minute on the first try. Give it another go!");
-      } else if (msg.includes("Not authorized") || msg.includes("401")) {
+      if (msg.includes("Not authorized") || msg.includes("401")) {
         alert("Your session expired. Refresh the page to log in again.");
       } else {
         alert("Oops! " + msg);
@@ -433,7 +437,10 @@ async function describeDrawing(imageData) {
         const poll = await fetch(statusUrl, {
           headers: { "Authorization": "Bearer " + authToken },
         });
-        if (!poll.ok) continue;
+        if (!poll.ok) {
+          console.warn("Describe status poll failed:", poll.status);
+          continue;
+        }
         const result = await poll.json();
         if (result.status === "succeeded") {
           return {
