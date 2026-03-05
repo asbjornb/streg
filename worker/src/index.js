@@ -202,6 +202,12 @@ async function handleDescribe(request, env, cors) {
   return jsonResponse({
     subject: rawCaption,
     prompt: enrichedPrompt,
+    prompt_details: {
+      blip_question: blipQuestion,
+      blip_raw_caption: rawCaption,
+      llm_prompt: llmPrompt,
+      enriched_prompt: enrichedPrompt,
+    },
   }, 200, cors);
 }
 

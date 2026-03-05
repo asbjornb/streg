@@ -389,7 +389,9 @@ function setupSubmit() {
 
       // Log and show prompt details
       if (data.prompt_details) {
-        console.log("[prompt] ControlNet generate:", JSON.stringify(data.prompt_details));
+        console.log("[prompt] Generate prompt:", data.prompt_details.prompt);
+        console.log("[prompt] Generate positive:", data.prompt_details.a_prompt);
+        console.log("[prompt] Generate negative:", data.prompt_details.n_prompt);
         showPromptDetails(data.prompt_details);
       }
 
@@ -436,6 +438,15 @@ async function describeDrawing(imageData) {
   }
 
   const data = await res.json();
+
+  // Log describe prompts for debug view
+  if (data.prompt_details) {
+    console.log("[prompt] BLIP question:", data.prompt_details.blip_question);
+    console.log("[prompt] BLIP raw caption:", data.prompt_details.blip_raw_caption);
+    console.log("[prompt] LLM enrichment prompt:", data.prompt_details.llm_prompt);
+    console.log("[prompt] Enriched prompt:", data.prompt_details.enriched_prompt);
+  }
+
   return {
     caption: data.subject || fallback,
     prompt: data.prompt || data.subject || fallback,
