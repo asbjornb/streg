@@ -336,6 +336,7 @@ function setupSubmit() {
   const btnLoading = btn.querySelector(".btn-loading");
 
   btn.addEventListener("click", async () => {
+    console.warn("[replicate] Submit button clicked");
     if (isCanvasEmpty()) {
       alert("Draw something first!");
       return;
@@ -379,6 +380,7 @@ function setupSubmit() {
       }
 
       // Send to worker
+      console.warn("[replicate] Sending generate request with prompt:", prompt);
       btnLoading.textContent = "Working the magic...";
       let res;
       try {
@@ -405,9 +407,9 @@ function setupSubmit() {
 
       // Log and show prompt details
       if (data.prompt_details) {
-        console.log("[prompt] Generate prompt:", data.prompt_details.prompt);
-        console.log("[prompt] Generate positive:", data.prompt_details.a_prompt);
-        console.log("[prompt] Generate negative:", data.prompt_details.n_prompt);
+        console.warn("[replicate] Generate prompt:", data.prompt_details.prompt);
+        console.warn("[replicate] Generate positive:", data.prompt_details.a_prompt);
+        console.warn("[replicate] Generate negative:", data.prompt_details.n_prompt);
         showPromptDetails(data.prompt_details);
       }
 
@@ -436,6 +438,7 @@ function setupSubmit() {
 async function describeDrawing(imageData) {
   const fallback = "a colorful children's drawing";
 
+  console.warn("[replicate] Sending describe request (BLIP + LLM enrichment)");
   const res = await fetch(WORKER_URL + "/describe", {
     method: "POST",
     headers: {
@@ -457,10 +460,10 @@ async function describeDrawing(imageData) {
 
   // Log describe prompts for debug view
   if (data.prompt_details) {
-    console.log("[prompt] BLIP question:", data.prompt_details.blip_question);
-    console.log("[prompt] BLIP raw caption:", data.prompt_details.blip_raw_caption);
-    console.log("[prompt] LLM enrichment prompt:", data.prompt_details.llm_prompt);
-    console.log("[prompt] Enriched prompt:", data.prompt_details.enriched_prompt);
+    console.warn("[replicate] BLIP question:", data.prompt_details.blip_question);
+    console.warn("[replicate] BLIP raw caption:", data.prompt_details.blip_raw_caption);
+    console.warn("[replicate] LLM enrichment prompt:", data.prompt_details.llm_prompt);
+    console.warn("[replicate] Enriched prompt:", data.prompt_details.enriched_prompt);
   }
 
   return {
