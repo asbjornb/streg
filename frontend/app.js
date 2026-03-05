@@ -14,13 +14,9 @@ const COLORS = [
   "#92400e", // brown
 ];
 
-// === Child drawing converter prompt ===
-const CHILD_DRAWING_PROMPT = "Take this drawing created by my child and transform it into a photorealistic image or realistic 3D render. I don't know what it's supposed to be — it could be a creature, object, or something completely from their imagination. Keep the original shape, proportions, line lengths, and all imperfections exactly as they are in the drawing — including any slanted eyes, uneven lines, or strange markings. Do not correct, smooth out, or change any details of their design.";
-
 // === State ===
 let isDrawing = false;
 let isEraser = false;
-let isChildMode = false;
 let currentColor = COLORS[0];
 let brushSize = 6;
 let strokeHistory = []; // array of ImageData snapshots for undo
@@ -41,7 +37,6 @@ function init() {
   setupPIN();
   setupSubmit();
   setupMobileToggles();
-  setupChildMode();
   restoreDraft();
   loadHistory();
 
@@ -167,36 +162,6 @@ function setupMobileToggles() {
       document.getElementById("prompt-input").focus();
     }
   });
-}
-
-// === Child drawing mode toggle ===
-function setupChildMode() {
-  const toggle = document.getElementById("child-mode-toggle");
-  const label = document.getElementById("child-mode-label");
-  const promptPanel = document.getElementById("prompt-panel");
-
-  if (!toggle) return;
-
-  // Restore saved preference
-  isChildMode = localStorage.getItem("streg_child_mode") === "true";
-  toggle.checked = isChildMode;
-  updateChildModeUI();
-
-  toggle.addEventListener("change", () => {
-    isChildMode = toggle.checked;
-    localStorage.setItem("streg_child_mode", isChildMode);
-    updateChildModeUI();
-  });
-
-  function updateChildModeUI() {
-    if (isChildMode) {
-      promptPanel.style.display = "none";
-      label.textContent = "Child drawing mode (no prompt needed)";
-    } else {
-      promptPanel.style.display = "";
-      label.textContent = "Child drawing mode";
-    }
-  }
 }
 
 function rgbToHex(rgb) {
@@ -474,10 +439,7 @@ function setupSubmit() {
       // Get the canvas as a base64 PNG
       const imageData = canvas.toDataURL("image/png");
 
-      // Child drawing mode: use fixed prompt, skip describe
-      if (isChildMode) {
-        prompt = CHILD_DRAWING_PROMPT;
-      } else if (!prompt) {
+      if (!prompt) {
         // If no prompt, auto-detect what the drawing looks like
         btnLoading.textContent = "Looking at your drawing...";
         const described = await describeDrawing(imageData);
