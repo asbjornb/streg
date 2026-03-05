@@ -11,15 +11,19 @@ import { describe, it, expect, beforeAll } from "vitest";
 const REPLICATE_API_TOKEN = process.env.REPLICATE_API_TOKEN;
 const BASE = "https://api.replicate.com/v1";
 
-// Tiny 8×8 white PNG with a black diagonal stroke (valid base64 data URI).
-// Small enough to inline, large enough for models to accept.
+// 64×64 white PNG with a black scribble-like diagonal line.
+// Large enough for ControlNet to process (it needs reasonable resolution).
 const TEST_IMAGE = (() => {
-  // Build a minimal 8×8 PNG programmatically isn't practical in a one-liner,
-  // so we use a pre-encoded 4×4 red-pixel PNG (smallest valid PNG).
-  // Models accept any valid image — the content doesn't matter for integration smoke tests.
+  // Pre-encoded 64×64 PNG: white background with a black diagonal stroke.
+  // Generated programmatically — content is simple but valid for all models.
   return "data:image/png;base64," +
-    "iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAADklEQVQI12P4z8BQDwAEgAF/" +
-    "QualNQAAAABJRU5ErkJggg==";
+    "iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAAAAACPAi4CAAABAklEQVR4nKXX" +
+    "WRLCMAwDUN//0qF0zWI7kswv0hsGSmKbWSu9zIqCtaJgrShYKwpntSJczYJw" +
+    "F3Xh6cnCW1OFryUKXUkT+o4kDBVFGBuCMBV4Yc7TwhJnhTVNCk6YE7wsJbhR" +
+    "RvCThBAEcSHKwUIYQ4U4BQpJCBOyDCSkEUTIE4CwCeyF7fs7Yf8RNwLwLeUC" +
+    "8kOlAvSsZAL2uCYC+I+JBfRPGwrwuREJ+NEVCMTp6QvMAe4K1B3iCdw15gjk" +
+    "TboK7GW+CPQ8MQv8SDMJwlQ1CspgNwjSbNkL2njbCeKE/QnqkP8K8p7xCPqq" +
+    "cwuFbesSKgvfKZR2zr9QW3vNakB9dT+EH5StM6BMc+zhAAAAAElFTkSuQmCC";
 })();
 
 // Model versions used in production
@@ -177,7 +181,7 @@ describe.skipIf(!REPLICATE_API_TOKEN)("Replicate integration tests", () => {
 
       // Poll until done to verify full pipeline works
       const result = await pollUntilDone(prediction.id);
-      expect(result.status).toBe("succeeded");
+      expect(result.status, `ControlNet prediction failed: ${result.error}`).toBe("succeeded");
       expect(Array.isArray(result.output)).toBe(true);
       expect(result.output.length).toBeGreaterThan(0);
       // Output should be image URLs
