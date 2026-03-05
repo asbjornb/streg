@@ -72,9 +72,9 @@
   });
 
   // --- Intercept console methods ---
-  const colors = { log: "#d4d4d4", warn: "#ffe066", error: "#f44" };
+  const colors = { log: "#d4d4d4", info: "#6cb6ff", warn: "#ffe066", error: "#f44" };
 
-  ["log", "warn", "error"].forEach((method) => {
+  ["log", "info", "warn", "error"].forEach((method) => {
     const original = console[method].bind(console);
     console[method] = function (...args) {
       original(...args);
