@@ -35,6 +35,19 @@ function replicateHeaders(prefer) {
   return h;
 }
 
+// Retry-aware fetch: waits and retries on 429 (rate limit) responses.
+// The Replicate account has a burst limit of 1 when credits are low,
+// so sequential tests need to respect retry_after between requests.
+async function fetchWithRetry(url, options, { maxRetries = 3 } = {}) {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    const res = await fetch(url, options);
+    if (res.status !== 429 || attempt === maxRetries) return res;
+    const body = await res.json();
+    const waitSec = body.retry_after || 10;
+    await new Promise(r => setTimeout(r, waitSec * 1000));
+  }
+}
+
 // Cancel a prediction so we don't burn GPU time waiting for full generation.
 async function cancelPrediction(id) {
   try {
@@ -68,7 +81,7 @@ describe.skipIf(!REPLICATE_API_TOKEN)("Replicate integration tests", () => {
 
   describe("BLIP-2 caption", () => {
     it("returns a text caption for an image", async () => {
-      const res = await fetch(`${BASE}/predictions`, {
+      const res = await fetchWithRetry(`${BASE}/predictions`, {
         method: "POST",
         headers: replicateHeaders("wait"),
         body: JSON.stringify({
@@ -103,7 +116,7 @@ describe.skipIf(!REPLICATE_API_TOKEN)("Replicate integration tests", () => {
     it("generates an enriched prompt from a caption", async () => {
       const llmPrompt = `A child drew "a cat". Write a short image generation prompt (under 30 words) that describes this subject with a fitting, colorful background that contrasts with the subject so it stands out clearly. Specify children's picture book illustration, bright colors, clean edges. No filler words. Only output the prompt, nothing else.`;
 
-      const res = await fetch(`${BASE}/models/meta/meta-llama-3-8b-instruct/predictions`, {
+      const res = await fetchWithRetry(`${BASE}/models/meta/meta-llama-3-8b-instruct/predictions`, {
         method: "POST",
         headers: replicateHeaders("wait"),
         body: JSON.stringify({
@@ -135,7 +148,7 @@ describe.skipIf(!REPLICATE_API_TOKEN)("Replicate integration tests", () => {
 
   describe("ControlNet Scribble generation", () => {
     it("creates an async prediction and returns a valid prediction ID", async () => {
-      const res = await fetch(`${BASE}/predictions`, {
+      const res = await fetchWithRetry(`${BASE}/predictions`, {
         method: "POST",
         headers: replicateHeaders("respond-async"),
         body: JSON.stringify({
@@ -177,7 +190,7 @@ describe.skipIf(!REPLICATE_API_TOKEN)("Replicate integration tests", () => {
   describe("Status polling", () => {
     it("returns prediction status for a known prediction", async () => {
       // Create a quick sync prediction (BLIP-2) to get a real ID
-      const createRes = await fetch(`${BASE}/predictions`, {
+      const createRes = await fetchWithRetry(`${BASE}/predictions`, {
         method: "POST",
         headers: replicateHeaders("wait"),
         body: JSON.stringify({
