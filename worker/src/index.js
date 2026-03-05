@@ -154,7 +154,9 @@ async function handleDescribe(request, env, cors) {
   }
 
   const rawCaption = (typeof blipPrediction.output === "string" ? blipPrediction.output : (blipPrediction.output || "").toString())
-    .replace(/^(Caption|Answer):\s*/i, "").trim();
+    .replace(/^(Caption|Answer):\s*/i, "")
+    .replace(/^a\s+(black\s+and\s+white\s+|simple\s+|hand[- ]?drawn\s+)*(drawing|sketch|doodle|scribble|picture|illustration|image)\s+(of\s+)?/i, "")
+    .trim();
 
   if (!rawCaption) {
     return jsonResponse({

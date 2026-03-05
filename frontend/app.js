@@ -400,7 +400,7 @@ function setupSubmit() {
         showResult(data.output, prompt);
       }
     } catch (err) {
-      console.error("Generation error:", err);
+      console.error("Generation error:", err.message || err);
       const msg = err.message || "Unknown error";
       if (msg.includes("Not authorized") || msg.includes("401")) {
         alert("Your session expired. Refresh the page to log in again.");
