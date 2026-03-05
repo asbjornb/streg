@@ -448,49 +448,53 @@ async function describeDrawing(imageData) {
   }
 
   // Poll for describe result
-  if (data.id) {
-    let enrichId = null;
-    const maxAttempts = 30; // 60 seconds max
-    for (let i = 0; i < maxAttempts; i++) {
-      await sleep(2000);
-      try {
-        let statusUrl = WORKER_URL + "/describe/status/" + data.id;
-        if (enrichId) statusUrl += "?enrich=" + enrichId;
-        const poll = await fetch(statusUrl, {
-          headers: { "Authorization": "Bearer " + authToken },
-        });
-        if (!poll.ok) {
-          console.warn("[describe] Status poll failed:", poll.status);
-          continue;
-        }
-        const result = await poll.json();
+  if (!data.id) {
+    console.warn("[describe] No prediction ID in response:", JSON.stringify(data));
+    showPromptInfo("Describe failed: no prediction ID");
+    return { caption: fallback, prompt: fallback, failed: true };
+  }
 
-        // Log enrichment prompt when it first appears
-        if (result.prompts) {
-          console.log("[prompt] LLM enrich:", JSON.stringify(result.prompts));
-        }
-
-        if (result.status === "succeeded") {
-          console.log("[prompt] Enriched prompt result:", result.prompt);
-          return {
-            caption: result.subject || fallback,
-            prompt: result.prompt || result.subject || fallback,
-          };
-        }
-        if (result.status === "enriching") {
-          // BLIP done, LLM enrichment kicked off — retry with enrich ID
-          enrichId = result.enrich_id;
-          continue;
-        }
-        if (result.status === "failed" || result.status === "canceled") {
-          const reason = result.error || result.status;
-          console.warn("[describe] Prediction failed:", reason);
-          showPromptInfo("Describe failed: " + reason);
-          return { caption: fallback, prompt: fallback, failed: true };
-        }
-      } catch {
-        // Network error, keep polling
+  let enrichId = null;
+  const maxAttempts = 30; // 60 seconds max
+  for (let i = 0; i < maxAttempts; i++) {
+    await sleep(2000);
+    try {
+      let statusUrl = WORKER_URL + "/describe/status/" + data.id;
+      if (enrichId) statusUrl += "?enrich=" + enrichId;
+      const poll = await fetch(statusUrl, {
+        headers: { "Authorization": "Bearer " + authToken },
+      });
+      if (!poll.ok) {
+        console.warn("[describe] Status poll failed:", poll.status);
+        continue;
       }
+      const result = await poll.json();
+
+      // Log enrichment prompt when it first appears
+      if (result.prompts) {
+        console.log("[prompt] LLM enrich:", JSON.stringify(result.prompts));
+      }
+
+      if (result.status === "succeeded") {
+        console.log("[prompt] Enriched prompt result:", result.prompt);
+        return {
+          caption: result.subject || fallback,
+          prompt: result.prompt || result.subject || fallback,
+        };
+      }
+      if (result.status === "enriching") {
+        // BLIP done, LLM enrichment kicked off — retry with enrich ID
+        enrichId = result.enrich_id;
+        continue;
+      }
+      if (result.status === "failed" || result.status === "canceled") {
+        const reason = result.error || result.status;
+        console.warn("[describe] Prediction failed:", reason);
+        showPromptInfo("Describe failed: " + reason);
+        return { caption: fallback, prompt: fallback, failed: true };
+      }
+    } catch {
+      // Network error, keep polling
     }
   }
 

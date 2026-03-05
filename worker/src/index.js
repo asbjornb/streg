@@ -147,6 +147,15 @@ async function handleDescribe(request, env, cors) {
 
   const prediction = await res.json();
 
+  if (!prediction.id) {
+    console.error("Replicate describe: no prediction ID in response", JSON.stringify(prediction));
+    return jsonResponse({
+      error: "AI service error",
+      step: "describe",
+      detail: "No prediction ID returned",
+    }, 502, cors);
+  }
+
   return jsonResponse({
     id: prediction.id,
     status: prediction.status || "starting",
