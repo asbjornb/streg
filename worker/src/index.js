@@ -2,6 +2,63 @@
 // Proxies drawing requests to Replicate's ControlNet Scribble model
 // with simple PIN-based family auth.
 
+// Medium/style words that BLIP uses to describe the drawing itself rather than the subject.
+// These leak into the generation prompt and force unwanted styles (e.g. monochrome output).
+const MEDIUM_NOUNS = "drawing|sketch|doodle|scribble|picture|illustration|image|artwork|painting|cartoon|outline|diagram|depiction|rendition|rendering";
+const MEDIUM_ADJECTIVES = "black\\s+and\\s+white|monochrome|grayscale|grey|gray|simple|hand[- ]?drawn|hand[- ]?sketched|rough|crude|basic|pencil|ink|pen|charcoal|crayon|chalk|line|stick\\s+figure|childish|child's|children's|kid's";
+
+/**
+ * Strip medium/style phrases that describe the scribble rather than the subject.
+ * BLIP often says things like "a black and white drawing of a cat" — we want just "a cat".
+ */
+export function cleanCaption(raw) {
+  let text = raw;
+
+  // 1. Strip "Caption:" / "Answer:" prefix
+  text = text.replace(/^(Caption|Answer):\s*/i, "");
+
+  // 2. Strip leading preamble: "this is|there is|it is|it looks like" etc.
+  text = text.replace(/^(this|there|it)\s+(is|looks like|appears to be|seems to be)\s+/i, "");
+
+  // 3. Strip leading article + optional medium adjectives + medium noun + "of"
+  //    e.g. "a black and white drawing of" / "an ink sketch of" / "a simple doodle of"
+  const mediumPrefixRe = new RegExp(
+    `^(a|an|the)\\s+((${MEDIUM_ADJECTIVES})\\s+)*(${MEDIUM_NOUNS})\\s+(of\\s+)?`,
+    "i"
+  );
+  text = text.replace(mediumPrefixRe, "");
+
+  // 4. Also without a leading article: "black and white drawing of a cat"
+  const noArticlePrefixRe = new RegExp(
+    `^((${MEDIUM_ADJECTIVES})\\s+)+(${MEDIUM_NOUNS})\\s+(of\\s+)?`,
+    "i"
+  );
+  text = text.replace(noArticlePrefixRe, "");
+
+  // 5. Strip ", drawn/sketched/rendered in ..." suffixes
+  text = text.replace(/[,.]?\s+(drawn|sketched|rendered|depicted|shown)\s+(in|on|with)\s+.*$/i, "");
+
+  // 6. Strip trailing medium phrases: "..., in black and white"
+  const trailingRe = new RegExp(
+    `[,.]?\\s+(in\\s+)?(${MEDIUM_ADJECTIVES})\\s*$`,
+    "i"
+  );
+  text = text.replace(trailingRe, "");
+
+  // 7. Strip standalone medium phrases that might remain mid-sentence
+  //    e.g. "a cat, black and white drawing" -> "a cat"
+  const midRe = new RegExp(
+    `[,.]?\\s*(${MEDIUM_ADJECTIVES})\\s+(${MEDIUM_NOUNS})\\s*[,.]?`,
+    "gi"
+  );
+  text = text.replace(midRe, " ");
+
+  // 8. Clean up whitespace and dangling punctuation
+  text = text.replace(/^[\s,.:;]+|[\s,.:;]+$/g, "").replace(/\s{2,}/g, " ");
+
+  return text;
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -154,10 +211,8 @@ async function handleDescribe(request, env, cors) {
     }, 502, cors);
   }
 
-  const rawCaption = (typeof blipPrediction.output === "string" ? blipPrediction.output : (blipPrediction.output || "").toString())
-    .replace(/^(Caption|Answer):\s*/i, "")
-    .replace(/^a\s+(black\s+and\s+white\s+|simple\s+|hand[- ]?drawn\s+)*(drawing|sketch|doodle|scribble|picture|illustration|image)\s+(of\s+)?/i, "")
-    .trim();
+  const blipOutput = (typeof blipPrediction.output === "string" ? blipPrediction.output : (blipPrediction.output || "").toString()).trim();
+  const rawCaption = cleanCaption(blipOutput);
 
   if (!rawCaption) {
     return jsonResponse({
