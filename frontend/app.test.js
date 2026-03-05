@@ -16,10 +16,13 @@ const HTML = `<!DOCTYPE html><html><body>
   <button id="eraser-btn"></button>
   <button id="undo-btn"></button>
   <button id="clear-btn"></button>
+  <div id="toolbar-panel" class="toolbar"></div>
+  <button id="toggle-toolbar"></button>
+  <button id="toggle-prompt"></button>
   <div class="canvas-area" style="width:200px"><canvas id="drawing-canvas"></canvas></div>
   <div id="saving-indicator" hidden></div>
   <input id="pin-input"><button id="pin-submit"></button><p id="pin-error" hidden></p>
-  <input id="prompt-input">
+  <div id="prompt-panel" class="prompt-input-wrap"><input id="prompt-input"></div>
   <button id="submit-btn"><span class="btn-text"></span><span class="btn-loading" hidden></span></button>
   <pre id="prompt-info" hidden></pre>
   <div id="results-area" hidden><div id="results-gallery"></div></div>
