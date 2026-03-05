@@ -56,6 +56,8 @@
     display: "none",
     whiteSpace: "pre-wrap",
     wordBreak: "break-all",
+    WebkitUserSelect: "text",
+    userSelect: "text",
   });
 
   document.body.appendChild(toggle);
