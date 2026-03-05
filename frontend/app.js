@@ -442,25 +442,37 @@ async function describeDrawing(imageData) {
     console.log("[prompt] BLIP-2 describe:", JSON.stringify(data.prompts));
   }
 
-  // If already completed (unlikely but handle it)
-  if (data.subject && data.prompt) {
-    return { caption: data.subject, prompt: data.prompt };
+  // If already completed (sync result from Replicate or enrichment failed)
+  if ((data.subject || data.caption) && data.prompt) {
+    return { caption: data.subject || data.caption, prompt: data.prompt };
+  }
+
+  // Handle enriching status from sync BLIP completion (no BLIP prediction ID needed)
+  if (data.status === "enriching" && data.enrich_id && data.subject) {
+    // BLIP already done, just need to poll enrichment
+    console.log("[describe] BLIP completed sync, polling enrichment:", data.enrich_id);
   }
 
   // Poll for describe result
-  if (!data.id) {
+  if (!data.id && !(data.status === "enriching" && data.enrich_id && data.subject)) {
     console.warn("[describe] No prediction ID in response:", JSON.stringify(data));
     showPromptInfo("Describe failed: no prediction ID");
     return { caption: fallback, prompt: fallback, failed: true };
   }
 
-  let enrichId = null;
+  let enrichId = data.enrich_id || null;
   const maxAttempts = 30; // 60 seconds max
   for (let i = 0; i < maxAttempts; i++) {
     await sleep(2000);
     try {
-      let statusUrl = WORKER_URL + "/describe/status/" + data.id;
-      if (enrichId) statusUrl += "?enrich=" + enrichId;
+      let statusUrl;
+      if (!data.id && enrichId) {
+        // BLIP completed sync — poll enrichment directly
+        statusUrl = WORKER_URL + "/describe/enrich/" + enrichId + "?subject=" + encodeURIComponent(data.subject || "");
+      } else {
+        statusUrl = WORKER_URL + "/describe/status/" + data.id;
+        if (enrichId) statusUrl += "?enrich=" + enrichId;
+      }
       const poll = await fetch(statusUrl, {
         headers: { "Authorization": "Bearer " + authToken },
       });

@@ -27,6 +27,11 @@ export default {
         return handleDescribe(request, env, corsHeaders);
       }
 
+      if (url.pathname.startsWith("/describe/enrich/") && request.method === "GET") {
+        const id = url.pathname.split("/describe/enrich/")[1];
+        return handleEnrichStatus(request, env, corsHeaders, id);
+      }
+
       if (url.pathname.startsWith("/describe/status/") && request.method === "GET") {
         const id = url.pathname.split("/describe/status/")[1];
         return handleDescribeStatus(request, env, corsHeaders, id);
@@ -146,6 +151,43 @@ async function handleDescribe(request, env, cors) {
   }
 
   const prediction = await res.json();
+
+  // Handle synchronous completion (Replicate returned result inline)
+  if (prediction.output || prediction.status === "succeeded") {
+    try { await trackCost(prediction, env); } catch (e) { console.error("Cost tracking error:", e); }
+    const rawCaption = (typeof prediction.output === "string" ? prediction.output : (prediction.output || "").toString())
+      .replace(/^(Caption|Answer):\s*/i, "").trim();
+
+    if (rawCaption) {
+      // Kick off enrichment and return the result directly
+      const enrichResult = await startEnrichment(rawCaption, env);
+      if (enrichResult) {
+        return jsonResponse({
+          id: prediction.id || null,
+          status: "enriching",
+          type: "describe",
+          subject: rawCaption,
+          enrich_id: enrichResult.id,
+          prompts: {
+            model: "blip-2",
+            task: "visual_question_answering",
+            question: blipQuestion,
+            enrich_model: "meta-llama-3-8b-instruct",
+            llm_prompt: enrichResult.llmPrompt,
+          },
+        }, 200, cors);
+      }
+
+      // Enrichment failed — return raw caption as both subject and prompt
+      return jsonResponse({
+        id: prediction.id || null,
+        status: "succeeded",
+        type: "describe",
+        subject: rawCaption,
+        prompt: rawCaption,
+      }, 200, cors);
+    }
+  }
 
   if (!prediction.id) {
     console.error("Replicate describe: no prediction ID in response", JSON.stringify(prediction));
@@ -334,6 +376,49 @@ async function checkEnrichment(enrichId, fallback, env) {
   } catch {
     return { status: "failed", prompt: fallback };
   }
+}
+
+// === Enrich Status: poll enrichment-only (for sync BLIP completions) ===
+
+async function handleEnrichStatus(request, env, cors, enrichId) {
+  if (!(await verifyToken(request, env))) {
+    return jsonResponse({ error: "Not authorized" }, 401, cors);
+  }
+
+  if (!/^[a-z0-9]+$/.test(enrichId)) {
+    return jsonResponse({ error: "Invalid ID" }, 400, cors);
+  }
+
+  const subject = new URL(request.url).searchParams.get("subject") || "";
+  const fallback = subject || "a colorful children's drawing";
+
+  const enrichResult = await checkEnrichment(enrichId, fallback, env);
+
+  if (enrichResult.status === "succeeded") {
+    return jsonResponse({
+      status: "succeeded",
+      type: "describe",
+      subject: fallback,
+      prompt: enrichResult.prompt,
+    }, 200, cors);
+  }
+
+  if (enrichResult.status === "failed") {
+    return jsonResponse({
+      status: "succeeded",
+      type: "describe",
+      subject: fallback,
+      prompt: fallback,
+    }, 200, cors);
+  }
+
+  // Still processing
+  return jsonResponse({
+    status: "enriching",
+    type: "describe",
+    subject: fallback,
+    enrich_id: enrichId,
+  }, 200, cors);
 }
 
 // === Generate: send drawing to Replicate ===
