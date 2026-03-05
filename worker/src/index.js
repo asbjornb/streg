@@ -115,6 +115,7 @@ async function handleDescribe(request, env, cors) {
   }
 
   // Use BLIP-2 in VQA mode to identify subjects without medium/style words
+  const blipQuestion = "What are the main objects? Answer with the nouns/objects, no mention of drawing/sketch/black-and-white or other medium style words.";
   const res = await fetch("https://api.replicate.com/v1/predictions", {
     method: "POST",
     headers: {
@@ -127,7 +128,7 @@ async function handleDescribe(request, env, cors) {
       input: {
         image,
         task: "visual_question_answering",
-        question: "What are the main objects? Answer with the nouns/objects, no mention of drawing/sketch/black-and-white or other medium style words.",
+        question: blipQuestion,
       },
     }),
   });
@@ -150,6 +151,11 @@ async function handleDescribe(request, env, cors) {
     id: prediction.id,
     status: prediction.status || "starting",
     type: "describe",
+    prompts: {
+      model: "blip-2",
+      task: "visual_question_answering",
+      question: blipQuestion,
+    },
   }, 200, cors);
 }
 
@@ -221,15 +227,19 @@ async function handleDescribeStatus(request, env, cors, predictionId) {
     }
 
     // First time BLIP succeeded — kick off enrichment async, don't wait
-    const enrichPredictionId = await startEnrichment(rawCaption, env);
+    const enrichResult = await startEnrichment(rawCaption, env);
 
-    if (enrichPredictionId) {
+    if (enrichResult) {
       return jsonResponse({
         id: prediction.id,
         status: "enriching",
         type: "describe",
         subject: rawCaption,
-        enrich_id: enrichPredictionId,
+        enrich_id: enrichResult.id,
+        prompts: {
+          model: "meta-llama-3-8b-instruct",
+          llm_prompt: enrichResult.llmPrompt,
+        },
       }, 200, cors);
     }
 
@@ -255,9 +265,10 @@ async function handleDescribeStatus(request, env, cors, predictionId) {
 
 const LLAMA_MODEL_NAME = "meta-llama-3-8b";
 
-// Fire off LLM enrichment, return prediction ID without waiting for result
+// Fire off LLM enrichment, return { id, llmPrompt } without waiting for result
 async function startEnrichment(caption, env) {
   try {
+    const llmPrompt = `A child drew "${caption}". Write a short image generation prompt (under 30 words) that describes this subject with a fitting, colorful background that contrasts with the subject so it stands out clearly. Specify children's picture book illustration, bright colors, clean edges. No filler words. Only output the prompt, nothing else.`;
     const res = await fetch("https://api.replicate.com/v1/models/meta/meta-llama-3-8b-instruct/predictions", {
       method: "POST",
       headers: {
@@ -267,7 +278,7 @@ async function startEnrichment(caption, env) {
       },
       body: JSON.stringify({
         input: {
-          prompt: `A child drew "${caption}". Write a short image generation prompt (under 30 words) that describes this subject with a fitting, colorful background that contrasts with the subject so it stands out clearly. Specify children's picture book illustration, bright colors, clean edges. No filler words. Only output the prompt, nothing else.`,
+          prompt: llmPrompt,
           max_tokens: 60,
           temperature: 0.7,
         },
@@ -277,11 +288,9 @@ async function startEnrichment(caption, env) {
     if (!res.ok) return null;
 
     const prediction = await res.json();
+    const id = prediction.id || null;
 
-    // If completed synchronously (rare but possible)
-    if (prediction.status === "succeeded") return prediction.id;
-
-    return prediction.id || null;
+    return id ? { id, llmPrompt } : null;
   } catch {
     return null;
   }

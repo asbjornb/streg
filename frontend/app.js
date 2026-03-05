@@ -387,8 +387,9 @@ function setupSubmit() {
 
       const data = await res.json();
 
-      // Show prompt details so user can see the full prompt on mobile
+      // Log and show prompt details
       if (data.prompt_details) {
+        console.log("[prompt] ControlNet generate:", JSON.stringify(data.prompt_details));
         showPromptDetails(data.prompt_details);
       }
 
@@ -436,6 +437,11 @@ async function describeDrawing(imageData) {
 
   const data = await res.json();
 
+  // Log BLIP-2 prompt
+  if (data.prompts) {
+    console.log("[prompt] BLIP-2 describe:", JSON.stringify(data.prompts));
+  }
+
   // If already completed (unlikely but handle it)
   if (data.subject && data.prompt) {
     return { caption: data.subject, prompt: data.prompt };
@@ -458,7 +464,14 @@ async function describeDrawing(imageData) {
           continue;
         }
         const result = await poll.json();
+
+        // Log enrichment prompt when it first appears
+        if (result.prompts) {
+          console.log("[prompt] LLM enrich:", JSON.stringify(result.prompts));
+        }
+
         if (result.status === "succeeded") {
+          console.log("[prompt] Enriched prompt result:", result.prompt);
           return {
             caption: result.subject || fallback,
             prompt: result.prompt || result.subject || fallback,
