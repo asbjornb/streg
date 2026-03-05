@@ -52,3 +52,12 @@ Run the worker locally:
 cd worker && npm install && npx wrangler dev
 ```
 For local dev, create `worker/.dev.vars` with the three secrets (one per line, `KEY=value` format).
+
+## Tests
+
+Run frontend tests:
+```bash
+cd frontend && npm install && npm test
+```
+
+Tests use vitest + jsdom to exercise `app.js` in a simulated browser environment.
