@@ -201,12 +201,22 @@ async function handleDescribeStatus(request, env, cors, predictionId) {
     const enrichId = new URL(request.url).searchParams.get("enrich");
     if (enrichId) {
       const enrichResult = await checkEnrichment(enrichId, rawCaption, env);
+      if (enrichResult.status === "processing") {
+        // LLM still working — tell frontend to keep polling
+        return jsonResponse({
+          id: prediction.id,
+          status: "enriching",
+          type: "describe",
+          subject: rawCaption,
+          enrich_id: enrichId,
+        }, 200, cors);
+      }
       return jsonResponse({
         id: prediction.id,
         status: "succeeded",
         type: "describe",
         subject: rawCaption,
-        prompt: enrichResult,
+        prompt: enrichResult.prompt,
       }, 200, cors);
     }
 
@@ -277,9 +287,9 @@ async function startEnrichment(caption, env) {
   }
 }
 
-// Check enrichment prediction once — return enriched prompt or fallback to raw caption
+// Check enrichment prediction once — return { status, prompt } so caller can decide to keep polling
 async function checkEnrichment(enrichId, fallback, env) {
-  if (!/^[a-z0-9]+$/.test(enrichId)) return fallback;
+  if (!/^[a-z0-9]+$/.test(enrichId)) return { status: "failed", prompt: fallback };
 
   try {
     const res = await fetch(
@@ -287,20 +297,24 @@ async function checkEnrichment(enrichId, fallback, env) {
       { headers: { "Authorization": "Bearer " + env.REPLICATE_API_TOKEN } }
     );
 
-    if (!res.ok) return fallback;
+    if (!res.ok) return { status: "failed", prompt: fallback };
 
     const result = await res.json();
 
     if (result.status === "succeeded" && result.output) {
       try { await trackCost({ ...result, _model_name: LLAMA_MODEL_NAME }, env); } catch (e) { console.error("Cost tracking error:", e); }
       const text = Array.isArray(result.output) ? result.output.join("") : result.output;
-      return text.trim().replace(/^["']|["']$/g, "") || fallback;
+      return { status: "succeeded", prompt: text.trim().replace(/^["']|["']$/g, "") || fallback };
     }
 
-    // Still processing or failed — return raw caption, don't block
-    return fallback;
+    if (result.status === "failed" || result.status === "canceled") {
+      return { status: "failed", prompt: fallback };
+    }
+
+    // Still processing — tell caller to keep polling
+    return { status: "processing" };
   } catch {
-    return fallback;
+    return { status: "failed", prompt: fallback };
   }
 }
 
@@ -359,6 +373,11 @@ async function handleGenerate(request, env, cors) {
     id: prediction.id,
     status: prediction.status,
     output: prediction.output,
+    prompt_details: {
+      prompt,
+      a_prompt: "best quality, extremely detailed, colorful, vibrant, subject clearly distinct from background, contrasting background, well-defined edges",
+      n_prompt: "longbody, lowres, bad anatomy, bad hands, missing fingers, extra digit, fewer digits, cropped, worst quality, low quality, subject blending into background, uniform texture, monochrome background",
+    },
   }, 200, cors);
 }
 

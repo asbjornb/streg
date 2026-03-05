@@ -267,6 +267,21 @@ header h1 {
   white-space: nowrap;
 }
 
+/* === Prompt Info === */
+.prompt-info {
+  margin-top: 8px;
+  padding: 10px 12px;
+  font-size: 0.8rem;
+  font-family: inherit;
+  color: var(--text-muted);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.5;
+}
+
 /* === Results === */
 #results-area, #history-area {
   margin-top: 24px;
