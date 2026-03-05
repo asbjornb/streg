@@ -252,9 +252,68 @@ header h1 {
   display: none;
 }
 
+/* === Mode Toggle === */
+.mode-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.toggle-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.toggle-switch {
+  position: relative;
+  display: inline-block;
+  width: 42px;
+  height: 24px;
+  flex-shrink: 0;
+}
+
+.toggle-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.toggle-slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: var(--border);
+  border-radius: 24px;
+  transition: background 0.2s;
+}
+
+.toggle-slider::before {
+  content: "";
+  position: absolute;
+  height: 18px;
+  width: 18px;
+  left: 3px;
+  bottom: 3px;
+  background: white;
+  border-radius: 50%;
+  transition: transform 0.2s;
+}
+
+.toggle-switch input:checked + .toggle-slider {
+  background: var(--primary);
+}
+
+.toggle-switch input:checked + .toggle-slider::before {
+  transform: translateX(18px);
+}
+
 /* === Prompt Area === */
 .prompt-area {
   display: flex;
+  flex-wrap: wrap;
   gap: 12px;
   margin-top: 12px;
   align-items: stretch;
@@ -374,6 +433,7 @@ header h1 {
   /* -- Prompt area: always show button, collapse input -- */
   .prompt-area {
     flex-direction: column;
+    flex-wrap: nowrap;
     margin-top: 8px;
   }
 
