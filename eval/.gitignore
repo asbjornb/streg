@@ -1,0 +1,5 @@
+results/
+test-images/*.png
+test-images/*.jpg
+test-images/*.jpeg
+test-images/*.webp

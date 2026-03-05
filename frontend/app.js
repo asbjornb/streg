@@ -131,6 +131,18 @@ function setupToolbar() {
     photoBtn.addEventListener("click", () => photoInput.click());
     photoInput.addEventListener("change", handlePhotoUpload);
   }
+
+  // Export drawing as PNG
+  const exportBtn = document.getElementById("export-btn");
+  if (exportBtn) {
+    exportBtn.addEventListener("click", exportDrawing);
+  }
+
+  // Save to eval test suite
+  const saveEvalBtn = document.getElementById("save-eval-btn");
+  if (saveEvalBtn) {
+    saveEvalBtn.addEventListener("click", saveToEval);
+  }
 }
 
 // === Mobile panel toggles ===
@@ -307,6 +319,58 @@ function handlePhotoUpload(e) {
     img.src = ev.target.result;
   };
   reader.readAsDataURL(file);
+}
+
+// === Export drawing as PNG ===
+function exportDrawing() {
+  const link = document.createElement("a");
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+  link.download = "streg-" + timestamp + ".png";
+  link.href = canvas.toDataURL("image/png");
+  link.click();
+}
+
+// === Save to eval test suite ===
+async function saveToEval() {
+  if (isCanvasEmpty()) {
+    alert("Draw something first!");
+    return;
+  }
+
+  const btn = document.getElementById("save-eval-btn");
+  btn.disabled = true;
+
+  try {
+    const dataUrl = canvas.toDataURL("image/png");
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+    const res = await fetch(WORKER_URL + "/eval/images", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer " + authToken,
+      },
+      body: JSON.stringify({ name: "drawing-" + timestamp, dataUrl }),
+    });
+
+    if (res.ok) {
+      // Brief visual feedback
+      btn.style.background = "var(--primary)";
+      btn.style.color = "white";
+      btn.style.borderColor = "var(--primary)";
+      setTimeout(() => {
+        btn.style.background = "";
+        btn.style.color = "";
+        btn.style.borderColor = "";
+      }, 1000);
+    } else {
+      const err = await res.json().catch(() => ({}));
+      alert("Save failed: " + (err.error || "Unknown error"));
+    }
+  } catch (e) {
+    alert("Save failed: " + e.message);
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 // === Draft saving (localStorage) ===
