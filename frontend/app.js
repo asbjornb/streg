@@ -36,6 +36,7 @@ function init() {
   setupDrawing();
   setupPIN();
   setupSubmit();
+  setupMobileToggles();
   restoreDraft();
   loadHistory();
 
@@ -53,7 +54,12 @@ function init() {
 function setupCanvas() {
   const area = document.querySelector(".canvas-area");
   const w = area.clientWidth;
-  const h = Math.min(w * 0.75, window.innerHeight * 0.5);
+  const isMobile = window.innerWidth <= 600;
+  // On mobile: use most of the viewport height for drawing
+  // On desktop: keep the original 3:4 / 50vh cap
+  const h = isMobile
+    ? Math.min(w, window.innerHeight * 0.7)
+    : Math.min(w * 0.75, window.innerHeight * 0.5);
   canvas.width = w;
   canvas.height = h;
   ctx.fillStyle = "#ffffff";
@@ -117,6 +123,37 @@ function setupToolbar() {
 
   document.getElementById("undo-btn").addEventListener("click", undo);
   document.getElementById("clear-btn").addEventListener("click", clearCanvas);
+}
+
+// === Mobile panel toggles ===
+function setupMobileToggles() {
+  const toolbarToggle = document.getElementById("toggle-toolbar");
+  const promptToggle = document.getElementById("toggle-prompt");
+  const toolbarPanel = document.getElementById("toolbar-panel");
+  const promptPanel = document.getElementById("prompt-panel");
+
+  if (!toolbarToggle || !promptToggle) return;
+
+  toolbarToggle.addEventListener("click", () => {
+    const isOpen = toolbarPanel.classList.toggle("panel-open");
+    toolbarToggle.classList.toggle("active", isOpen);
+    // Close the other panel
+    if (isOpen) {
+      promptPanel.classList.remove("panel-open");
+      promptToggle.classList.remove("active");
+    }
+  });
+
+  promptToggle.addEventListener("click", () => {
+    const isOpen = promptPanel.classList.toggle("panel-open");
+    promptToggle.classList.toggle("active", isOpen);
+    // Close the other panel
+    if (isOpen) {
+      toolbarPanel.classList.remove("panel-open");
+      toolbarToggle.classList.remove("active");
+      document.getElementById("prompt-input").focus();
+    }
+  });
 }
 
 function rgbToHex(rgb) {

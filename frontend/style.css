@@ -200,6 +200,18 @@ header h1 {
   border-color: var(--text);
 }
 
+/* === Canvas Wrapper (holds canvas + mobile toggle buttons) === */
+.canvas-wrapper {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+}
+
+.canvas-wrapper .canvas-area {
+  flex: 1;
+  min-width: 0;
+}
+
 /* === Canvas === */
 .canvas-area {
   position: relative;
@@ -235,12 +247,22 @@ header h1 {
   opacity: 1;
 }
 
+/* === Toggle buttons (mobile only, hidden on desktop) === */
+.btn-toggle {
+  display: none;
+}
+
 /* === Prompt Area === */
 .prompt-area {
   display: flex;
   gap: 12px;
   margin-top: 12px;
   align-items: stretch;
+}
+
+.prompt-input-wrap {
+  flex: 1;
+  display: flex;
 }
 
 #prompt-input {
@@ -319,26 +341,88 @@ header h1 {
   color: var(--text-muted);
 }
 
-/* === Responsive === */
+/* === Responsive: Mobile === */
 @media (max-width: 600px) {
   #app {
-    padding: 8px;
+    padding: 4px;
+  }
+
+  header {
+    padding: 4px 0;
   }
 
   header h1 {
-    font-size: 1.5rem;
+    font-size: 1.3rem;
   }
 
+  .tagline {
+    display: none;
+  }
+
+  /* -- Collapsible toolbar -- */
   .toolbar {
     gap: 10px;
     padding: 10px;
+    margin-bottom: 4px;
+    display: none;
   }
 
+  .toolbar.panel-open {
+    display: flex;
+  }
+
+  /* -- Prompt area: always show button, collapse input -- */
   .prompt-area {
     flex-direction: column;
+    margin-top: 8px;
+  }
+
+  .prompt-input-wrap {
+    display: none;
+  }
+
+  .prompt-input-wrap.panel-open {
+    display: flex;
   }
 
   .btn-magic {
     min-width: unset;
+  }
+
+  /* -- Toggle buttons visible on mobile -- */
+  .btn-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    flex-shrink: 0;
+    background: var(--surface);
+    border: 2px solid var(--border);
+    color: var(--text-muted);
+    padding: 0;
+    cursor: pointer;
+    z-index: 2;
+    transition: background 0.15s, color 0.15s;
+  }
+
+  .btn-toggle-left {
+    border-right: none;
+    border-radius: var(--radius) 0 0 var(--radius);
+  }
+
+  .btn-toggle-right {
+    border-left: none;
+    border-radius: 0 var(--radius) var(--radius) 0;
+  }
+
+  .btn-toggle.active {
+    background: var(--primary);
+    color: white;
+    border-color: var(--primary);
+  }
+
+  /* Canvas gets no border-radius on sides when toggle buttons present */
+  .canvas-wrapper .canvas-area {
+    border-radius: 0;
   }
 }
