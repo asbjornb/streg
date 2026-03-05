@@ -27,16 +27,6 @@ export default {
         return handleDescribe(request, env, corsHeaders);
       }
 
-      if (url.pathname.startsWith("/describe/enrich/") && request.method === "GET") {
-        const id = url.pathname.split("/describe/enrich/")[1];
-        return handleEnrichStatus(request, env, corsHeaders, id);
-      }
-
-      if (url.pathname.startsWith("/describe/status/") && request.method === "GET") {
-        const id = url.pathname.split("/describe/status/")[1];
-        return handleDescribeStatus(request, env, corsHeaders, id);
-      }
-
       if (url.pathname === "/generate" && request.method === "POST") {
         return handleGenerate(request, env, corsHeaders);
       }
@@ -106,7 +96,9 @@ async function sign(data, secret) {
     .replace(/=+$/, "");
 }
 
-// === Describe: use BLIP to caption a scribble drawing (async) ===
+// === Describe: use BLIP to caption a scribble drawing, then enrich with LLM ===
+
+const LLAMA_MODEL_NAME = "meta-llama-3-8b";
 
 async function handleDescribe(request, env, cors) {
   if (!(await verifyToken(request, env))) {
@@ -119,14 +111,14 @@ async function handleDescribe(request, env, cors) {
     return jsonResponse({ error: "Need an image" }, 400, cors);
   }
 
-  // Use BLIP-2 in VQA mode to identify subjects without medium/style words
+  // Step 1: BLIP-2 caption (synchronous — Replicate waits for result)
   const blipQuestion = "What are the main objects? Answer with the nouns/objects, no mention of drawing/sketch/black-and-white or other medium style words.";
-  const res = await fetch("https://api.replicate.com/v1/predictions", {
+  const blipRes = await fetch("https://api.replicate.com/v1/predictions", {
     method: "POST",
     headers: {
       "Authorization": "Bearer " + env.REPLICATE_API_TOKEN,
       "Content-Type": "application/json",
-      "Prefer": "respond-async",
+      "Prefer": "wait",
     },
     body: JSON.stringify({
       version: "2e1dddc8621f72155f24cf2e0adbde548458d3cab9f00c0139eea840d0ac4746",
@@ -138,194 +130,50 @@ async function handleDescribe(request, env, cors) {
     }),
   });
 
-  if (!res.ok) {
-    const body = await res.text();
-    const detail = parseReplicateError(res.status, body);
-    console.error("Replicate describe error:", res.status, body);
+  if (!blipRes.ok) {
+    const body = await blipRes.text();
+    const detail = parseReplicateError(blipRes.status, body);
+    console.error("Replicate describe error:", blipRes.status, body);
     return jsonResponse({
       error: "AI service error",
       step: "describe",
       detail,
-      replicate_status: res.status,
+      replicate_status: blipRes.status,
     }, 502, cors);
   }
 
-  const prediction = await res.json();
+  const blipPrediction = await blipRes.json();
+  try { await trackCost(blipPrediction, env); } catch (e) { console.error("Cost tracking error:", e); }
 
-  // Handle synchronous completion (Replicate returned result inline)
-  if (prediction.output || prediction.status === "succeeded") {
-    try { await trackCost(prediction, env); } catch (e) { console.error("Cost tracking error:", e); }
-    const rawCaption = (typeof prediction.output === "string" ? prediction.output : (prediction.output || "").toString())
-      .replace(/^(Caption|Answer):\s*/i, "").trim();
-
-    if (rawCaption) {
-      // Kick off enrichment and return the result directly
-      const enrichResult = await startEnrichment(rawCaption, env);
-      if (enrichResult) {
-        return jsonResponse({
-          id: prediction.id || null,
-          status: "enriching",
-          type: "describe",
-          subject: rawCaption,
-          enrich_id: enrichResult.id,
-          prompts: {
-            model: "blip-2",
-            task: "visual_question_answering",
-            question: blipQuestion,
-            enrich_model: "meta-llama-3-8b-instruct",
-            llm_prompt: enrichResult.llmPrompt,
-          },
-        }, 200, cors);
-      }
-
-      // Enrichment failed — return raw caption as both subject and prompt
-      return jsonResponse({
-        id: prediction.id || null,
-        status: "succeeded",
-        type: "describe",
-        subject: rawCaption,
-        prompt: rawCaption,
-      }, 200, cors);
-    }
-  }
-
-  if (!prediction.id) {
-    console.error("Replicate describe: no prediction ID in response", JSON.stringify(prediction));
+  if (blipPrediction.status === "failed" || blipPrediction.status === "canceled") {
+    console.error("Describe prediction failed:", blipPrediction.error);
     return jsonResponse({
-      error: "AI service error",
+      error: blipPrediction.error || "Could not describe the drawing",
       step: "describe",
-      detail: "No prediction ID returned",
     }, 502, cors);
   }
 
-  return jsonResponse({
-    id: prediction.id,
-    status: prediction.status || "starting",
-    type: "describe",
-    prompts: {
-      model: "blip-2",
-      task: "visual_question_answering",
-      question: blipQuestion,
-    },
-  }, 200, cors);
-}
+  const rawCaption = (typeof blipPrediction.output === "string" ? blipPrediction.output : (blipPrediction.output || "").toString())
+    .replace(/^(Caption|Answer):\s*/i, "").trim();
 
-// === Describe Status: poll BLIP prediction, enrich when done ===
-
-async function handleDescribeStatus(request, env, cors, predictionId) {
-  if (!(await verifyToken(request, env))) {
-    return jsonResponse({ error: "Not authorized" }, 401, cors);
-  }
-
-  if (!/^[a-z0-9]+$/.test(predictionId)) {
-    return jsonResponse({ error: "Invalid ID" }, 400, cors);
-  }
-
-  const res = await fetch(
-    `https://api.replicate.com/v1/predictions/${predictionId}`,
-    { headers: { "Authorization": "Bearer " + env.REPLICATE_API_TOKEN } }
-  );
-
-  if (!res.ok) {
-    const body = await res.text();
-    const detail = parseReplicateError(res.status, body);
-    console.error("Replicate describe status check error:", res.status, body);
-    return jsonResponse({ error: "Could not check status", step: "describe-status", detail }, 502, cors);
-  }
-
-  const prediction = await res.json();
-
-  // Track cost when prediction completes
-  if (prediction.status === "succeeded" || prediction.status === "failed") {
-    try { await trackCost(prediction, env); } catch (e) { console.error("Cost tracking error:", e); }
-  }
-
-  if (prediction.status === "failed" || prediction.status === "canceled") {
-    console.error("Describe prediction failed:", prediction.id, prediction.error);
+  if (!rawCaption) {
     return jsonResponse({
-      id: prediction.id,
-      status: prediction.status,
-      type: "describe",
-      error: prediction.error || "Could not describe the drawing",
-    }, 200, cors);
+      error: "AI returned empty caption",
+      step: "describe",
+    }, 502, cors);
   }
 
-  if (prediction.status === "succeeded" && prediction.output) {
-    const rawCaption = (typeof prediction.output === "string" ? prediction.output : prediction.output.toString())
-      .replace(/^(Caption|Answer):\s*/i, "").trim();
+  // Step 2: Enrich caption with LLM (synchronous)
+  const llmPrompt = `A child drew "${rawCaption}". Write a short image generation prompt (under 30 words) that describes this subject with a fitting, colorful background that contrasts with the subject so it stands out clearly. Specify children's picture book illustration, bright colors, clean edges. No filler words. Only output the prompt, nothing else.`;
 
-    // If frontend passed an enrich ID from a previous poll, check it
-    const enrichId = new URL(request.url).searchParams.get("enrich");
-    if (enrichId) {
-      const enrichResult = await checkEnrichment(enrichId, rawCaption, env);
-      if (enrichResult.status === "processing") {
-        // LLM still working — tell frontend to keep polling
-        return jsonResponse({
-          id: prediction.id,
-          status: "enriching",
-          type: "describe",
-          subject: rawCaption,
-          enrich_id: enrichId,
-        }, 200, cors);
-      }
-      return jsonResponse({
-        id: prediction.id,
-        status: "succeeded",
-        type: "describe",
-        subject: rawCaption,
-        prompt: enrichResult.prompt,
-      }, 200, cors);
-    }
-
-    // First time BLIP succeeded — kick off enrichment async, don't wait
-    const enrichResult = await startEnrichment(rawCaption, env);
-
-    if (enrichResult) {
-      return jsonResponse({
-        id: prediction.id,
-        status: "enriching",
-        type: "describe",
-        subject: rawCaption,
-        enrich_id: enrichResult.id,
-        prompts: {
-          model: "meta-llama-3-8b-instruct",
-          llm_prompt: enrichResult.llmPrompt,
-        },
-      }, 200, cors);
-    }
-
-    // Enrichment failed to start — return raw caption as prompt
-    return jsonResponse({
-      id: prediction.id,
-      status: "succeeded",
-      type: "describe",
-      subject: rawCaption,
-      prompt: rawCaption,
-    }, 200, cors);
-  }
-
-  // Still processing
-  return jsonResponse({
-    id: prediction.id,
-    status: prediction.status,
-    type: "describe",
-  }, 200, cors);
-}
-
-// === Enrich caption with a contrasting background using an LLM (async, non-blocking) ===
-
-const LLAMA_MODEL_NAME = "meta-llama-3-8b";
-
-// Fire off LLM enrichment, return { id, llmPrompt } without waiting for result
-async function startEnrichment(caption, env) {
+  let enrichedPrompt = rawCaption; // fallback
   try {
-    const llmPrompt = `A child drew "${caption}". Write a short image generation prompt (under 30 words) that describes this subject with a fitting, colorful background that contrasts with the subject so it stands out clearly. Specify children's picture book illustration, bright colors, clean edges. No filler words. Only output the prompt, nothing else.`;
-    const res = await fetch("https://api.replicate.com/v1/models/meta/meta-llama-3-8b-instruct/predictions", {
+    const llmRes = await fetch("https://api.replicate.com/v1/models/meta/meta-llama-3-8b-instruct/predictions", {
       method: "POST",
       headers: {
         "Authorization": "Bearer " + env.REPLICATE_API_TOKEN,
         "Content-Type": "application/json",
-        "Prefer": "respond-async",
+        "Prefer": "wait",
       },
       body: JSON.stringify({
         input: {
@@ -336,88 +184,22 @@ async function startEnrichment(caption, env) {
       }),
     });
 
-    if (!res.ok) return null;
+    if (llmRes.ok) {
+      const llmPrediction = await llmRes.json();
+      try { await trackCost({ ...llmPrediction, _model_name: LLAMA_MODEL_NAME }, env); } catch (e) { console.error("Cost tracking error:", e); }
 
-    const prediction = await res.json();
-    const id = prediction.id || null;
-
-    return id ? { id, llmPrompt } : null;
-  } catch {
-    return null;
-  }
-}
-
-// Check enrichment prediction once — return { status, prompt } so caller can decide to keep polling
-async function checkEnrichment(enrichId, fallback, env) {
-  if (!/^[a-z0-9]+$/.test(enrichId)) return { status: "failed", prompt: fallback };
-
-  try {
-    const res = await fetch(
-      `https://api.replicate.com/v1/predictions/${enrichId}`,
-      { headers: { "Authorization": "Bearer " + env.REPLICATE_API_TOKEN } }
-    );
-
-    if (!res.ok) return { status: "failed", prompt: fallback };
-
-    const result = await res.json();
-
-    if (result.status === "succeeded" && result.output) {
-      try { await trackCost({ ...result, _model_name: LLAMA_MODEL_NAME }, env); } catch (e) { console.error("Cost tracking error:", e); }
-      const text = Array.isArray(result.output) ? result.output.join("") : result.output;
-      return { status: "succeeded", prompt: text.trim().replace(/^["']|["']$/g, "") || fallback };
+      if (llmPrediction.status === "succeeded" && llmPrediction.output) {
+        const text = Array.isArray(llmPrediction.output) ? llmPrediction.output.join("") : llmPrediction.output;
+        enrichedPrompt = text.trim().replace(/^["']|["']$/g, "") || rawCaption;
+      }
     }
-
-    if (result.status === "failed" || result.status === "canceled") {
-      return { status: "failed", prompt: fallback };
-    }
-
-    // Still processing — tell caller to keep polling
-    return { status: "processing" };
-  } catch {
-    return { status: "failed", prompt: fallback };
-  }
-}
-
-// === Enrich Status: poll enrichment-only (for sync BLIP completions) ===
-
-async function handleEnrichStatus(request, env, cors, enrichId) {
-  if (!(await verifyToken(request, env))) {
-    return jsonResponse({ error: "Not authorized" }, 401, cors);
+  } catch (e) {
+    console.error("Enrichment error (using raw caption):", e?.message);
   }
 
-  if (!/^[a-z0-9]+$/.test(enrichId)) {
-    return jsonResponse({ error: "Invalid ID" }, 400, cors);
-  }
-
-  const subject = new URL(request.url).searchParams.get("subject") || "";
-  const fallback = subject || "a colorful children's drawing";
-
-  const enrichResult = await checkEnrichment(enrichId, fallback, env);
-
-  if (enrichResult.status === "succeeded") {
-    return jsonResponse({
-      status: "succeeded",
-      type: "describe",
-      subject: fallback,
-      prompt: enrichResult.prompt,
-    }, 200, cors);
-  }
-
-  if (enrichResult.status === "failed") {
-    return jsonResponse({
-      status: "succeeded",
-      type: "describe",
-      subject: fallback,
-      prompt: fallback,
-    }, 200, cors);
-  }
-
-  // Still processing
   return jsonResponse({
-    status: "enriching",
-    type: "describe",
-    subject: fallback,
-    enrich_id: enrichId,
+    subject: rawCaption,
+    prompt: enrichedPrompt,
   }, 200, cors);
 }
 

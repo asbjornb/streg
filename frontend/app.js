@@ -436,83 +436,10 @@ async function describeDrawing(imageData) {
   }
 
   const data = await res.json();
-
-  // Log BLIP-2 prompt
-  if (data.prompts) {
-    console.log("[prompt] BLIP-2 describe:", JSON.stringify(data.prompts));
-  }
-
-  // If already completed (sync result from Replicate or enrichment failed)
-  if ((data.subject || data.caption) && data.prompt) {
-    return { caption: data.subject || data.caption, prompt: data.prompt };
-  }
-
-  // Handle enriching status from sync BLIP completion (no BLIP prediction ID needed)
-  if (data.status === "enriching" && data.enrich_id && data.subject) {
-    // BLIP already done, just need to poll enrichment
-    console.log("[describe] BLIP completed sync, polling enrichment:", data.enrich_id);
-  }
-
-  // Poll for describe result
-  if (!data.id && !(data.status === "enriching" && data.enrich_id && data.subject)) {
-    console.warn("[describe] No prediction ID in response:", JSON.stringify(data));
-    showPromptInfo("Describe failed: no prediction ID");
-    return { caption: fallback, prompt: fallback, failed: true };
-  }
-
-  let enrichId = data.enrich_id || null;
-  const maxAttempts = 30; // 60 seconds max
-  for (let i = 0; i < maxAttempts; i++) {
-    await sleep(2000);
-    try {
-      let statusUrl;
-      if (!data.id && enrichId) {
-        // BLIP completed sync — poll enrichment directly
-        statusUrl = WORKER_URL + "/describe/enrich/" + enrichId + "?subject=" + encodeURIComponent(data.subject || "");
-      } else {
-        statusUrl = WORKER_URL + "/describe/status/" + data.id;
-        if (enrichId) statusUrl += "?enrich=" + enrichId;
-      }
-      const poll = await fetch(statusUrl, {
-        headers: { "Authorization": "Bearer " + authToken },
-      });
-      if (!poll.ok) {
-        console.warn("[describe] Status poll failed:", poll.status);
-        continue;
-      }
-      const result = await poll.json();
-
-      // Log enrichment prompt when it first appears
-      if (result.prompts) {
-        console.log("[prompt] LLM enrich:", JSON.stringify(result.prompts));
-      }
-
-      if (result.status === "succeeded") {
-        console.log("[prompt] Enriched prompt result:", result.prompt);
-        return {
-          caption: result.subject || fallback,
-          prompt: result.prompt || result.subject || fallback,
-        };
-      }
-      if (result.status === "enriching") {
-        // BLIP done, LLM enrichment kicked off — retry with enrich ID
-        enrichId = result.enrich_id;
-        continue;
-      }
-      if (result.status === "failed" || result.status === "canceled") {
-        const reason = result.error || result.status;
-        console.warn("[describe] Prediction failed:", reason);
-        showPromptInfo("Describe failed: " + reason);
-        return { caption: fallback, prompt: fallback, failed: true };
-      }
-    } catch {
-      // Network error, keep polling
-    }
-  }
-
-  console.warn("[describe] Polling timed out");
-  showPromptInfo("Describe timed out after 60s");
-  return { caption: fallback, prompt: fallback, failed: true };
+  return {
+    caption: data.subject || fallback,
+    prompt: data.prompt || data.subject || fallback,
+  };
 }
 
 async function pollForResult(predictionId, prompt) {
