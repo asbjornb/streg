@@ -336,6 +336,7 @@ function setupSubmit() {
   const btnLoading = btn.querySelector(".btn-loading");
 
   btn.addEventListener("click", async () => {
+    console.warn("[replicate] Submit button clicked");
     if (isCanvasEmpty()) {
       alert("Draw something first!");
       return;
