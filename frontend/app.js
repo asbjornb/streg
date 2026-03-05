@@ -295,6 +295,7 @@ function clearCanvas() {
   saveSnapshot();
   ctx.fillStyle = "#ffffff";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
+  document.getElementById("prompt-input").value = "";
   scheduleSaveDraft();
 }
 
