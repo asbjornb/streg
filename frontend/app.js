@@ -218,6 +218,17 @@ function clearCanvas() {
   scheduleSaveDraft();
 }
 
+function isCanvasEmpty() {
+  const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+  for (let i = 0; i < data.length; i += 4) {
+    if (data[i] !== 255 || data[i + 1] !== 255 || data[i + 2] !== 255) {
+      return false;
+    }
+  }
+  return true;
+}
+
+
 // === Draft saving (localStorage) ===
 let saveTimer = null;
 
@@ -325,6 +336,11 @@ function setupSubmit() {
   const btnLoading = btn.querySelector(".btn-loading");
 
   btn.addEventListener("click", async () => {
+    if (isCanvasEmpty()) {
+      alert("Draw something first!");
+      return;
+    }
+
     let prompt = document.getElementById("prompt-input").value.trim();
 
     if (!WORKER_URL) {
