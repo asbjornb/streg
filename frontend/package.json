@@ -1,0 +1,12 @@
+{
+  "name": "streg-frontend",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "jsdom": "^28.1.0",
+    "vitest": "^3"
+  }
+}
