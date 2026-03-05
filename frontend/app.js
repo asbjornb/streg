@@ -379,6 +379,7 @@ function setupSubmit() {
       }
 
       // Send to worker
+      console.log("[replicate] Sending generate request with prompt:", prompt);
       btnLoading.textContent = "Working the magic...";
       let res;
       try {
@@ -436,6 +437,7 @@ function setupSubmit() {
 async function describeDrawing(imageData) {
   const fallback = "a colorful children's drawing";
 
+  console.log("[replicate] Sending describe request (BLIP + LLM enrichment)");
   const res = await fetch(WORKER_URL + "/describe", {
     method: "POST",
     headers: {

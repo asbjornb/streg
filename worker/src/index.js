@@ -113,6 +113,7 @@ async function handleDescribe(request, env, cors) {
 
   // Step 1: BLIP-2 caption (synchronous — Replicate waits for result)
   const blipQuestion = "What are the main objects? Answer with the nouns/objects, no mention of drawing/sketch/black-and-white or other medium style words.";
+  console.log("REPLICATE_PROMPT", JSON.stringify({ step: "blip-2", question: blipQuestion }));
   const blipRes = await fetch("https://api.replicate.com/v1/predictions", {
     method: "POST",
     headers: {
@@ -170,6 +171,7 @@ async function handleDescribe(request, env, cors) {
 
   let enrichedPrompt = rawCaption; // fallback
   try {
+    console.log("REPLICATE_PROMPT", JSON.stringify({ step: "llm-enrichment", prompt: llmPrompt }));
     const llmRes = await fetch("https://api.replicate.com/v1/models/meta/meta-llama-3-8b-instruct/predictions", {
       method: "POST",
       headers: {
@@ -225,6 +227,7 @@ async function handleGenerate(request, env, cors) {
   }
 
   // Call Replicate API to create a prediction
+  console.log("REPLICATE_PROMPT", JSON.stringify({ step: "controlnet-generate", prompt, image_resolution: "512", ddim_steps: 20, scale: 9 }));
   const res = await fetch("https://api.replicate.com/v1/predictions", {
     method: "POST",
     headers: {
