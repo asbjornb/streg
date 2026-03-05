@@ -23,7 +23,7 @@ const TEST_IMAGE = (() => {
 })();
 
 // Model versions used in production
-const BLIP2_VERSION = "2e1dddc8621f72155f24cf2e0adbde548458d3cab9f00c0139eea840d0ac4746";
+const BLIP2_VERSION = "f677695e5e89f8b236e52ecd1d3f01beb44c34606419bcc19345e046d8f786f9";
 const CONTROLNET_VERSION = "435061a1b5a4c1e26740464bf786efdfa9cb3a3ac488595a2de23e143fdb0117";
 
 function replicateHeaders(prefer) {
@@ -81,10 +81,9 @@ describe.skipIf(!REPLICATE_API_TOKEN)("Replicate integration tests", () => {
         }),
       });
 
-      expect(res.ok).toBe(true);
-
       const prediction = await res.json();
-      expect(prediction.status).toBe("succeeded");
+      expect(res.ok, `BLIP-2 HTTP ${res.status}: ${JSON.stringify(prediction)}`).toBe(true);
+      expect(prediction.status, `BLIP-2 prediction failed: ${JSON.stringify(prediction.error || prediction)}`).toBe("succeeded");
       expect(prediction.output).toBeTruthy();
       // Output should be a non-empty string
       const caption = typeof prediction.output === "string"
@@ -116,10 +115,9 @@ describe.skipIf(!REPLICATE_API_TOKEN)("Replicate integration tests", () => {
         }),
       });
 
-      expect(res.ok).toBe(true);
-
       const prediction = await res.json();
-      expect(prediction.status).toBe("succeeded");
+      expect(res.ok, `Llama HTTP ${res.status}: ${JSON.stringify(prediction)}`).toBe(true);
+      expect(prediction.status, `Llama prediction failed: ${JSON.stringify(prediction.error || prediction)}`).toBe("succeeded");
       expect(prediction.output).toBeTruthy();
 
       // Output is an array of token strings
@@ -157,9 +155,8 @@ describe.skipIf(!REPLICATE_API_TOKEN)("Replicate integration tests", () => {
         }),
       });
 
-      expect(res.ok).toBe(true);
-
       const prediction = await res.json();
+      expect(res.ok, `ControlNet HTTP ${res.status}: ${JSON.stringify(prediction)}`).toBe(true);
       expect(prediction.id).toBeTruthy();
       expect(typeof prediction.id).toBe("string");
       // Async predictions start in "starting" or "processing"
@@ -192,8 +189,8 @@ describe.skipIf(!REPLICATE_API_TOKEN)("Replicate integration tests", () => {
         }),
       });
 
-      expect(createRes.ok).toBe(true);
       const created = await createRes.json();
+      expect(createRes.ok, `Status-poll BLIP-2 HTTP ${createRes.status}: ${JSON.stringify(created)}`).toBe(true);
       const predictionId = created.id;
       expect(predictionId).toBeTruthy();
 
