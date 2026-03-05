@@ -335,6 +335,9 @@ function setupSubmit() {
     btn.disabled = true;
     btnText.hidden = true;
     btnLoading.hidden = false;
+    // Clear previous prompt info
+    const promptInfoEl = document.getElementById("prompt-info");
+    if (promptInfoEl) { promptInfoEl.hidden = true; promptInfoEl.textContent = ""; }
 
     try {
       // Get the canvas as a base64 PNG
@@ -384,6 +387,11 @@ function setupSubmit() {
 
       const data = await res.json();
 
+      // Show prompt details so user can see the full prompt on mobile
+      if (data.prompt_details) {
+        showPromptDetails(data.prompt_details);
+      }
+
       // Poll for result if we got a prediction ID
       if (data.id && !data.output) {
         await pollForResult(data.id, prompt);
@@ -420,7 +428,9 @@ async function describeDrawing(imageData) {
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    console.warn("[describe] Request failed:", res.status, err.detail || err.error || "");
+    const reason = err.detail || err.error || "HTTP " + res.status;
+    console.warn("[describe] Request failed:", res.status, reason);
+    showPromptInfo("Describe failed: " + reason);
     return { caption: fallback, prompt: fallback, failed: true };
   }
 
@@ -460,7 +470,9 @@ async function describeDrawing(imageData) {
           continue;
         }
         if (result.status === "failed" || result.status === "canceled") {
-          console.warn("[describe] Prediction failed:", result.error || result.status);
+          const reason = result.error || result.status;
+          console.warn("[describe] Prediction failed:", reason);
+          showPromptInfo("Describe failed: " + reason);
           return { caption: fallback, prompt: fallback, failed: true };
         }
       } catch {
@@ -470,6 +482,7 @@ async function describeDrawing(imageData) {
   }
 
   console.warn("[describe] Polling timed out");
+  showPromptInfo("Describe timed out after 60s");
   return { caption: fallback, prompt: fallback, failed: true };
 }
 
@@ -538,6 +551,27 @@ function escapeHtml(str) {
   const div = document.createElement("div");
   div.textContent = str;
   return div.innerHTML;
+}
+
+// === Prompt info display (visible on mobile instead of console) ===
+function showPromptInfo(text) {
+  const el = document.getElementById("prompt-info");
+  if (!el) return;
+  el.textContent = text;
+  el.hidden = false;
+}
+
+function showPromptDetails(promptDetails) {
+  if (!promptDetails) return;
+  const el = document.getElementById("prompt-info");
+  if (!el) return;
+  const lines = [
+    "Prompt: " + promptDetails.prompt,
+    "Positive: " + promptDetails.a_prompt,
+    "Negative: " + promptDetails.n_prompt,
+  ];
+  el.textContent = lines.join("\n");
+  el.hidden = false;
 }
 
 // === History (localStorage) ===
