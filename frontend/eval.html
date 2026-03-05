@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Streg - Prompt Eval</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="app">
+    <header>
+      <h1>Streg <span style="font-weight:400; font-size:0.6em; color:var(--text-muted)">eval</span></h1>
+      <p class="tagline">Test prompt variants side-by-side</p>
+    </header>
+
+    <!-- PIN screen (same as main app) -->
+    <div id="pin-screen" class="screen">
+      <div class="pin-box">
+        <h2>Enter the family code</h2>
+        <input type="password" id="pin-input" maxlength="20" inputmode="numeric" autocomplete="off" placeholder="****">
+        <button id="pin-submit" class="btn btn-primary">Go!</button>
+        <p id="pin-error" class="error" hidden>Hmm, that's not right. Try again!</p>
+      </div>
+    </div>
+
+    <!-- Eval screen -->
+    <div id="eval-screen" class="screen" hidden>
+      <!-- Tab bar -->
+      <div class="eval-tabs">
+        <button class="eval-tab active" data-tab="images">Images</button>
+        <button class="eval-tab" data-tab="variants">Variants</button>
+        <button class="eval-tab" data-tab="results">Results</button>
+      </div>
+
+      <!-- Images tab -->
+      <div id="tab-images" class="eval-tab-content">
+        <div class="eval-section-header">
+          <p class="eval-hint">Add test drawings, then run them through different prompt configs.</p>
+          <div class="eval-actions">
+            <label class="btn btn-primary btn-sm" id="upload-image-btn">
+              Upload PNG
+              <input type="file" id="image-upload" accept="image/*" hidden>
+            </label>
+          </div>
+        </div>
+        <div id="image-grid" class="eval-image-grid">
+          <p class="eval-empty">No test images yet. Draw in the <a href="/">main app</a> and use "Save to test suite", or upload a PNG here.</p>
+        </div>
+      </div>
+
+      <!-- Variants tab -->
+      <div id="tab-variants" class="eval-tab-content" hidden>
+        <div class="eval-section-header">
+          <p class="eval-hint">Edit prompt configs to compare different approaches.</p>
+          <div class="eval-actions">
+            <button class="btn btn-primary btn-sm" id="add-variant-btn">New Variant</button>
+            <button class="btn btn-tool btn-sm" id="seed-variants-btn" title="Load default variants">Seed Defaults</button>
+          </div>
+        </div>
+        <div id="variant-list" class="eval-variant-list">
+          <p class="eval-empty">No variants yet. Tap "Seed Defaults" to load starter configs, or create your own.</p>
+        </div>
+      </div>
+
+      <!-- Results tab -->
+      <div id="tab-results" class="eval-tab-content" hidden>
+        <div class="eval-section-header">
+          <div class="eval-run-controls">
+            <span id="run-summary"></span>
+            <button class="btn btn-primary btn-sm" id="run-eval-btn">Run Eval</button>
+          </div>
+          <div id="run-progress" hidden>
+            <div class="eval-progress-bar"><div class="eval-progress-fill" id="progress-fill"></div></div>
+            <span id="progress-text"></span>
+          </div>
+        </div>
+        <div id="results-grid" class="eval-results-grid">
+          <p class="eval-empty">Select images and variants, then tap "Run Eval".</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="eval.js"></script>
+</body>
+</html>

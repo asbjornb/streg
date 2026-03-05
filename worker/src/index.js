@@ -85,7 +85,7 @@ export default {
     // CORS headers
     const corsHeaders = {
       "Access-Control-Allow-Origin": env.ALLOWED_ORIGIN || origin,
-      "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+      "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
       "Access-Control-Allow-Headers": "Content-Type, Authorization",
     };
 
@@ -113,6 +113,10 @@ export default {
 
       if (url.pathname === "/costs" && request.method === "GET") {
         return handleCosts(request, env, corsHeaders);
+      }
+
+      if (url.pathname.startsWith("/eval/")) {
+        return handleEvalRoutes(url, request, env, corsHeaders);
       }
 
       return jsonResponse({ error: "Not found" }, 404, corsHeaders);
@@ -171,25 +175,21 @@ async function sign(data, secret) {
     .replace(/=+$/, "");
 }
 
-// === Describe: use BLIP to caption a scribble drawing, then enrich with LLM ===
+// === Replicate API helpers (shared by main app + eval) ===
 
+const BLIP_VERSION = "f677695e5e89f8b236e52ecd1d3f01beb44c34606419bcc19345e046d8f786f9";
+const CONTROLNET_VERSION = "435061a1b5a4c1e26740464bf786efdfa9cb3a3ac488595a2de23e143fdb0117";
 const LLAMA_MODEL_NAME = "meta-llama-3-8b";
 
-async function handleDescribe(request, env, cors) {
-  if (!(await verifyToken(request, env))) {
-    return jsonResponse({ error: "Not authorized" }, 401, cors);
-  }
+const DEFAULT_BLIP_QUESTION = "What are the main objects? Answer with the nouns/objects, no mention of drawing/sketch/black-and-white or other medium style words.";
+const DEFAULT_LLM_ENRICHMENT = 'A child drew "{{caption}}". Write a short image generation prompt (under 30 words) that describes this subject with a fitting, colorful background that contrasts with the subject so it stands out clearly. Specify children\'s picture book illustration, bright colors, clean edges. No filler words. Only output the prompt, nothing else.';
+const DEFAULT_A_PROMPT = "best quality, extremely detailed, colorful, vibrant, subject clearly distinct from background, contrasting background, well-defined edges";
+const DEFAULT_N_PROMPT = "longbody, lowres, bad anatomy, bad hands, missing fingers, extra digit, fewer digits, cropped, worst quality, low quality, subject blending into background, uniform texture, monochrome background";
 
-  const { image } = await request.json();
-
-  if (!image) {
-    return jsonResponse({ error: "Need an image" }, 400, cors);
-  }
-
-  // Step 1: BLIP-2 caption (synchronous — Replicate waits for result)
-  const blipQuestion = "What are the main objects? Answer with the nouns/objects, no mention of drawing/sketch/black-and-white or other medium style words.";
-  console.log("REPLICATE_PROMPT", JSON.stringify({ step: "blip-2", question: blipQuestion }));
-  const blipRes = await fetch("https://api.replicate.com/v1/predictions", {
+async function callBlip(env, image, question) {
+  const q = question || DEFAULT_BLIP_QUESTION;
+  console.log("REPLICATE_PROMPT", JSON.stringify({ step: "blip-2", question: q }));
+  const res = await fetch("https://api.replicate.com/v1/predictions", {
     method: "POST",
     headers: {
       "Authorization": "Bearer " + env.REPLICATE_API_TOKEN,
@@ -197,93 +197,130 @@ async function handleDescribe(request, env, cors) {
       "Prefer": "wait",
     },
     body: JSON.stringify({
-      version: "f677695e5e89f8b236e52ecd1d3f01beb44c34606419bcc19345e046d8f786f9",
-      input: {
-        image,
-        task: "visual_question_answering",
-        question: blipQuestion,
-      },
+      version: BLIP_VERSION,
+      input: { image, task: "visual_question_answering", question: q },
     }),
   });
 
-  if (!blipRes.ok) {
-    const body = await blipRes.text();
-    const detail = parseReplicateError(blipRes.status, body);
-    console.error("Replicate describe error:", blipRes.status, body);
-    return jsonResponse({
-      error: "AI service error",
-      step: "describe",
-      detail,
-      replicate_status: blipRes.status,
-    }, 502, cors);
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(parseReplicateError(res.status, body));
   }
 
-  const blipPrediction = await blipRes.json();
-  try { await trackCost(blipPrediction, env); } catch (e) { console.error("Cost tracking error:", e); }
+  const prediction = await res.json();
+  try { await trackCost(prediction, env); } catch (e) { console.error("Cost tracking error:", e); }
 
-  if (blipPrediction.status === "failed" || blipPrediction.status === "canceled") {
-    console.error("Describe prediction failed:", blipPrediction.error);
-    return jsonResponse({
-      error: blipPrediction.error || "Could not describe the drawing",
-      step: "describe",
-    }, 502, cors);
+  if (prediction.status === "failed" || prediction.status === "canceled") {
+    throw new Error(prediction.error || "BLIP prediction failed");
   }
 
-  const blipOutput = (typeof blipPrediction.output === "string" ? blipPrediction.output : (blipPrediction.output || "").toString()).trim();
-  const rawCaption = cleanCaption(blipOutput);
+  const output = (typeof prediction.output === "string" ? prediction.output : (prediction.output || "").toString()).trim();
+  return cleanCaption(output);
+}
 
-  if (!rawCaption) {
-    return jsonResponse({
-      error: "AI returned empty caption",
-      step: "describe",
-    }, 502, cors);
-  }
+async function callLlmEnrich(env, caption, template) {
+  const tmpl = template || DEFAULT_LLM_ENRICHMENT;
+  const llmPrompt = tmpl.replace("{{caption}}", caption);
+  console.log("REPLICATE_PROMPT", JSON.stringify({ step: "llm-enrichment", prompt: llmPrompt }));
 
-  // Step 2: Enrich caption with LLM (synchronous)
-  const llmPrompt = `A child drew "${rawCaption}". Write a short image generation prompt (under 30 words) that describes this subject with a fitting, colorful background that contrasts with the subject so it stands out clearly. Specify children's picture book illustration, bright colors, clean edges. No filler words. Only output the prompt, nothing else.`;
-
-  let enrichedPrompt = rawCaption; // fallback
-  try {
-    console.log("REPLICATE_PROMPT", JSON.stringify({ step: "llm-enrichment", prompt: llmPrompt }));
-    const llmRes = await fetch("https://api.replicate.com/v1/models/meta/meta-llama-3-8b-instruct/predictions", {
-      method: "POST",
-      headers: {
-        "Authorization": "Bearer " + env.REPLICATE_API_TOKEN,
-        "Content-Type": "application/json",
-        "Prefer": "wait",
-      },
-      body: JSON.stringify({
-        input: {
-          prompt: llmPrompt,
-          max_tokens: 60,
-          temperature: 0.7,
-        },
-      }),
-    });
-
-    if (llmRes.ok) {
-      const llmPrediction = await llmRes.json();
-      try { await trackCost({ ...llmPrediction, _model_name: LLAMA_MODEL_NAME }, env); } catch (e) { console.error("Cost tracking error:", e); }
-
-      if (llmPrediction.status === "succeeded" && llmPrediction.output) {
-        const text = Array.isArray(llmPrediction.output) ? llmPrediction.output.join("") : llmPrediction.output;
-        enrichedPrompt = text.trim().replace(/^["']|["']$/g, "") || rawCaption;
-      }
-    }
-  } catch (e) {
-    console.error("Enrichment error (using raw caption):", e?.message);
-  }
-
-  return jsonResponse({
-    subject: rawCaption,
-    prompt: enrichedPrompt,
-    prompt_details: {
-      blip_question: blipQuestion,
-      blip_raw_caption: rawCaption,
-      llm_prompt: llmPrompt,
-      enriched_prompt: enrichedPrompt,
+  const res = await fetch("https://api.replicate.com/v1/models/meta/meta-llama-3-8b-instruct/predictions", {
+    method: "POST",
+    headers: {
+      "Authorization": "Bearer " + env.REPLICATE_API_TOKEN,
+      "Content-Type": "application/json",
+      "Prefer": "wait",
     },
-  }, 200, cors);
+    body: JSON.stringify({
+      input: { prompt: llmPrompt, max_tokens: 60, temperature: 0.7 },
+    }),
+  });
+
+  if (!res.ok) return caption; // fallback
+
+  const prediction = await res.json();
+  try { await trackCost({ ...prediction, _model_name: LLAMA_MODEL_NAME }, env); } catch (e) { console.error("Cost tracking error:", e); }
+
+  if (prediction.status === "succeeded" && prediction.output) {
+    const text = Array.isArray(prediction.output) ? prediction.output.join("") : prediction.output;
+    return text.trim().replace(/^["']|["']$/g, "") || caption;
+  }
+  return caption;
+}
+
+async function callControlNet(env, { image, prompt, a_prompt, n_prompt, ddim_steps, scale, image_resolution, seed }) {
+  const input = {
+    image,
+    prompt,
+    num_samples: "1",
+    image_resolution: image_resolution || "512",
+    ddim_steps: ddim_steps || 20,
+    scale: scale || 9,
+    seed: seed ?? Math.floor(Math.random() * 2147483647),
+    eta: 0,
+    a_prompt: a_prompt || DEFAULT_A_PROMPT,
+    n_prompt: n_prompt || DEFAULT_N_PROMPT,
+  };
+  console.log("REPLICATE_PROMPT", JSON.stringify({ step: "controlnet-generate", prompt, image_resolution: input.image_resolution, ddim_steps: input.ddim_steps, scale: input.scale }));
+
+  const res = await fetch("https://api.replicate.com/v1/predictions", {
+    method: "POST",
+    headers: {
+      "Authorization": "Bearer " + env.REPLICATE_API_TOKEN,
+      "Content-Type": "application/json",
+      "Prefer": "respond-async",
+    },
+    body: JSON.stringify({ version: CONTROLNET_VERSION, input }),
+  });
+
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(parseReplicateError(res.status, body));
+  }
+
+  return res.json();
+}
+
+// === Describe: use BLIP to caption a scribble drawing, then enrich with LLM ===
+
+async function handleDescribe(request, env, cors) {
+  if (!(await verifyToken(request, env))) {
+    return jsonResponse({ error: "Not authorized" }, 401, cors);
+  }
+
+  const { image } = await request.json();
+  if (!image) {
+    return jsonResponse({ error: "Need an image" }, 400, cors);
+  }
+
+  try {
+    const rawCaption = await callBlip(env, image);
+    if (!rawCaption) {
+      return jsonResponse({ error: "AI returned empty caption", step: "describe" }, 502, cors);
+    }
+
+    const llmPrompt = DEFAULT_LLM_ENRICHMENT.replace("{{caption}}", rawCaption);
+    let enrichedPrompt;
+    try {
+      enrichedPrompt = await callLlmEnrich(env, rawCaption);
+    } catch (e) {
+      console.error("Enrichment error (using raw caption):", e?.message);
+      enrichedPrompt = rawCaption;
+    }
+
+    return jsonResponse({
+      subject: rawCaption,
+      prompt: enrichedPrompt,
+      prompt_details: {
+        blip_question: DEFAULT_BLIP_QUESTION,
+        blip_raw_caption: rawCaption,
+        llm_prompt: llmPrompt,
+        enriched_prompt: enrichedPrompt,
+      },
+    }, 200, cors);
+  } catch (e) {
+    console.error("Describe error:", e?.message);
+    return jsonResponse({ error: "AI service error", step: "describe", detail: e?.message }, 502, cors);
+  }
 }
 
 // === Generate: send drawing to Replicate ===
@@ -294,60 +331,26 @@ async function handleGenerate(request, env, cors) {
   }
 
   const { image, prompt } = await request.json();
-
   if (!image || !prompt) {
     return jsonResponse({ error: "Need both image and prompt" }, 400, cors);
   }
 
-  // Call Replicate API to create a prediction
-  console.log("REPLICATE_PROMPT", JSON.stringify({ step: "controlnet-generate", prompt, image_resolution: "512", ddim_steps: 20, scale: 9 }));
-  const res = await fetch("https://api.replicate.com/v1/predictions", {
-    method: "POST",
-    headers: {
-      "Authorization": "Bearer " + env.REPLICATE_API_TOKEN,
-      "Content-Type": "application/json",
-      "Prefer": "respond-async",
-    },
-    body: JSON.stringify({
-      version: "435061a1b5a4c1e26740464bf786efdfa9cb3a3ac488595a2de23e143fdb0117",
-      input: {
-        image,
-        prompt,
-        num_samples: "1",
-        image_resolution: "512",
-        ddim_steps: 20,
-        scale: 9,
-        seed: Math.floor(Math.random() * 2147483647),
-        eta: 0,
-        a_prompt: "best quality, extremely detailed, colorful, vibrant, subject clearly distinct from background, contrasting background, well-defined edges",
-        n_prompt: "longbody, lowres, bad anatomy, bad hands, missing fingers, extra digit, fewer digits, cropped, worst quality, low quality, subject blending into background, uniform texture, monochrome background",
-      },
-    }),
-  });
-
-  if (!res.ok) {
-    const body = await res.text();
-    const detail = parseReplicateError(res.status, body);
-    console.error("Replicate generate error:", res.status, body);
+  try {
+    const prediction = await callControlNet(env, { image, prompt });
     return jsonResponse({
-      error: "AI service error",
-      step: "generate",
-      detail,
-      replicate_status: res.status,
-    }, 502, cors);
+      id: prediction.id,
+      status: prediction.status,
+      output: prediction.output,
+      prompt_details: {
+        prompt,
+        a_prompt: DEFAULT_A_PROMPT,
+        n_prompt: DEFAULT_N_PROMPT,
+      },
+    }, 200, cors);
+  } catch (e) {
+    console.error("Generate error:", e?.message);
+    return jsonResponse({ error: "AI service error", step: "generate", detail: e?.message }, 502, cors);
   }
-
-  const prediction = await res.json();
-  return jsonResponse({
-    id: prediction.id,
-    status: prediction.status,
-    output: prediction.output,
-    prompt_details: {
-      prompt,
-      a_prompt: "best quality, extremely detailed, colorful, vibrant, subject clearly distinct from background, contrasting background, well-defined edges",
-      n_prompt: "longbody, lowres, bad anatomy, bad hands, missing fingers, extra digit, fewer digits, cropped, worst quality, low quality, subject blending into background, uniform texture, monochrome background",
-    },
-  }, 200, cors);
 }
 
 // === Status: poll for prediction result ===
@@ -391,6 +394,218 @@ async function handleStatus(request, env, cors, predictionId) {
     output: prediction.output,
     error: prediction.error,
   }, 200, cors);
+}
+
+// === Eval mode: test images, prompt variants, results ===
+
+async function handleEvalRoutes(url, request, env, cors) {
+  if (!(await verifyToken(request, env))) {
+    return jsonResponse({ error: "Not authorized" }, 401, cors);
+  }
+
+  if (!env.EVAL_STORE) {
+    return jsonResponse({ error: "Eval store not configured" }, 501, cors);
+  }
+
+  const kv = env.EVAL_STORE;
+  const path = url.pathname;
+  const method = request.method;
+
+  // --- Test Images ---
+  if (path === "/eval/images" && method === "GET") {
+    const index = await kvGetIndex(kv, "eval:images");
+    const items = await Promise.all(
+      index.map(id => kv.get(`eval:images:${id}`, "json"))
+    );
+    // Return metadata only (no dataUrl) for listing
+    return jsonResponse(items.filter(Boolean).map(({ dataUrl, ...rest }) => rest), 200, cors);
+  }
+
+  if (path === "/eval/images" && method === "POST") {
+    const { name, dataUrl } = await request.json();
+    if (!dataUrl) return jsonResponse({ error: "Need dataUrl" }, 400, cors);
+    const id = crypto.randomUUID();
+    const item = { id, name: name || id, dataUrl, createdAt: new Date().toISOString() };
+    await kv.put(`eval:images:${id}`, JSON.stringify(item));
+    await kvAddToIndex(kv, "eval:images", id);
+    const { dataUrl: _, ...meta } = item;
+    return jsonResponse(meta, 201, cors);
+  }
+
+  const imageMatch = path.match(/^\/eval\/images\/([a-z0-9-]+)$/);
+  if (imageMatch && method === "GET") {
+    const item = await kv.get(`eval:images:${imageMatch[1]}`, "json");
+    if (!item) return jsonResponse({ error: "Not found" }, 404, cors);
+    return jsonResponse(item, 200, cors);
+  }
+
+  if (imageMatch && method === "DELETE") {
+    await kv.delete(`eval:images:${imageMatch[1]}`);
+    await kvRemoveFromIndex(kv, "eval:images", imageMatch[1]);
+    return jsonResponse({ ok: true }, 200, cors);
+  }
+
+  // --- Prompt Variants ---
+  if (path === "/eval/variants" && method === "GET") {
+    const index = await kvGetIndex(kv, "eval:variants");
+    const items = await Promise.all(
+      index.map(id => kv.get(`eval:variants:${id}`, "json"))
+    );
+    return jsonResponse(items.filter(Boolean), 200, cors);
+  }
+
+  if (path === "/eval/variants" && method === "POST") {
+    const body = await request.json();
+    const id = crypto.randomUUID();
+    const item = { id, ...body, createdAt: new Date().toISOString() };
+    await kv.put(`eval:variants:${id}`, JSON.stringify(item));
+    await kvAddToIndex(kv, "eval:variants", id);
+    return jsonResponse(item, 201, cors);
+  }
+
+  if (path === "/eval/variants/seed" && method === "POST") {
+    // Seed default variants if none exist
+    const index = await kvGetIndex(kv, "eval:variants");
+    if (index.length > 0) {
+      return jsonResponse({ ok: false, message: "Variants already exist" }, 200, cors);
+    }
+    const defaults = {
+      current: {
+        name: "current", description: "Current production prompts",
+        blip_question: DEFAULT_BLIP_QUESTION,
+        llm_enrichment: DEFAULT_LLM_ENRICHMENT,
+        a_prompt: DEFAULT_A_PROMPT, n_prompt: DEFAULT_N_PROMPT,
+        ddim_steps: 20, scale: 9, image_resolution: "512",
+      },
+      storybook: {
+        name: "storybook", description: "Watercolor storybook style",
+        blip_question: "What is in this picture? Name only the subject, no style or medium words.",
+        llm_enrichment: 'A child drew "{{caption}}". Write a vivid image prompt (under 25 words): the subject in a whimsical storybook scene with a complementary colorful background. Style: watercolor children\'s book illustration. Only output the prompt.',
+        a_prompt: "children's book illustration, watercolor, soft lighting, whimsical, colorful, detailed, charming, storybook art style",
+        n_prompt: "photo, realistic, 3d render, dark, scary, violent, ugly, blurry, lowres, bad anatomy, bad hands, extra fingers, cropped, worst quality, low quality, monochrome",
+        ddim_steps: 30, scale: 7.5, image_resolution: "512",
+      },
+      lower_guidance: {
+        name: "lower_guidance", description: "Lower guidance scale, less saturation",
+        blip_question: DEFAULT_BLIP_QUESTION,
+        llm_enrichment: DEFAULT_LLM_ENRICHMENT,
+        a_prompt: "best quality, colorful, vibrant, children's illustration, clean lines, well-defined edges",
+        n_prompt: "lowres, bad anatomy, worst quality, low quality, monochrome, blurry, cropped",
+        ddim_steps: 25, scale: 6, image_resolution: "512",
+      },
+    };
+    for (const v of Object.values(defaults)) {
+      const id = crypto.randomUUID();
+      v.id = id;
+      v.createdAt = new Date().toISOString();
+      await kv.put(`eval:variants:${id}`, JSON.stringify(v));
+      await kvAddToIndex(kv, "eval:variants", id);
+    }
+    return jsonResponse({ ok: true, count: Object.keys(defaults).length }, 201, cors);
+  }
+
+  const variantMatch = path.match(/^\/eval\/variants\/([a-z0-9-]+)$/);
+  if (variantMatch && method === "PUT") {
+    const body = await request.json();
+    const existing = await kv.get(`eval:variants:${variantMatch[1]}`, "json");
+    if (!existing) return jsonResponse({ error: "Not found" }, 404, cors);
+    const updated = { ...existing, ...body, id: variantMatch[1] };
+    await kv.put(`eval:variants:${variantMatch[1]}`, JSON.stringify(updated));
+    return jsonResponse(updated, 200, cors);
+  }
+
+  if (variantMatch && method === "DELETE") {
+    await kv.delete(`eval:variants:${variantMatch[1]}`);
+    await kvRemoveFromIndex(kv, "eval:variants", variantMatch[1]);
+    return jsonResponse({ ok: true }, 200, cors);
+  }
+
+  // --- Eval Describe (variant-aware) ---
+  if (path === "/eval/describe" && method === "POST") {
+    const { image, blip_question, llm_enrichment } = await request.json();
+    if (!image) return jsonResponse({ error: "Need image" }, 400, cors);
+
+    try {
+      const caption = await callBlip(env, image, blip_question);
+      if (!caption) return jsonResponse({ error: "Empty caption", step: "describe" }, 502, cors);
+
+      let enrichedPrompt;
+      try {
+        enrichedPrompt = await callLlmEnrich(env, caption, llm_enrichment);
+      } catch (e) {
+        enrichedPrompt = caption;
+      }
+
+      return jsonResponse({ caption, prompt: enrichedPrompt }, 200, cors);
+    } catch (e) {
+      return jsonResponse({ error: "AI service error", step: "describe", detail: e?.message }, 502, cors);
+    }
+  }
+
+  // --- Eval Generate (variant-aware) ---
+  if (path === "/eval/generate" && method === "POST") {
+    const { image, prompt, a_prompt, n_prompt, ddim_steps, scale, image_resolution } = await request.json();
+    if (!image || !prompt) return jsonResponse({ error: "Need image and prompt" }, 400, cors);
+
+    try {
+      const prediction = await callControlNet(env, {
+        image, prompt, a_prompt, n_prompt,
+        ddim_steps: ddim_steps || 20,
+        scale: scale || 9,
+        image_resolution: image_resolution || "512",
+        seed: 42, // fixed seed for eval comparison
+      });
+      return jsonResponse({ id: prediction.id, status: prediction.status }, 200, cors);
+    } catch (e) {
+      return jsonResponse({ error: "AI service error", step: "generate", detail: e?.message }, 502, cors);
+    }
+  }
+
+  // --- Eval Results ---
+  if (path === "/eval/results" && method === "GET") {
+    const list = await kv.list({ prefix: "eval:results:" });
+    const items = await Promise.all(
+      list.keys.map(k => kv.get(k.name, "json"))
+    );
+    return jsonResponse(items.filter(Boolean), 200, cors);
+  }
+
+  const resultMatch = path.match(/^\/eval\/results\/([a-z0-9-]+)\/([a-z0-9-]+)$/);
+  if (resultMatch && method === "PUT") {
+    const body = await request.json();
+    const key = `eval:results:${resultMatch[1]}:${resultMatch[2]}`;
+    const item = { imageId: resultMatch[1], variantId: resultMatch[2], ...body, updatedAt: new Date().toISOString() };
+    await kv.put(key, JSON.stringify(item));
+    return jsonResponse(item, 200, cors);
+  }
+
+  if (resultMatch && method === "DELETE") {
+    await kv.delete(`eval:results:${resultMatch[1]}:${resultMatch[2]}`);
+    return jsonResponse({ ok: true }, 200, cors);
+  }
+
+  return jsonResponse({ error: "Not found" }, 404, cors);
+}
+
+// --- KV index helpers ---
+
+async function kvGetIndex(kv, prefix) {
+  const data = await kv.get(`${prefix}:_index`, "json");
+  return data || [];
+}
+
+async function kvAddToIndex(kv, prefix, id) {
+  const index = await kvGetIndex(kv, prefix);
+  if (!index.includes(id)) {
+    index.push(id);
+    await kv.put(`${prefix}:_index`, JSON.stringify(index));
+  }
+}
+
+async function kvRemoveFromIndex(kv, prefix, id) {
+  const index = await kvGetIndex(kv, prefix);
+  const filtered = index.filter(x => x !== id);
+  await kv.put(`${prefix}:_index`, JSON.stringify(filtered));
 }
 
 // === Cost tracking ===
