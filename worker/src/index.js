@@ -7,6 +7,10 @@
 const MEDIUM_NOUNS = "drawing|sketch|doodle|scribble|picture|illustration|image|artwork|painting|cartoon|outline|diagram|depiction|rendition|rendering";
 const MEDIUM_ADJECTIVES = "black\\s+and\\s+white|monochrome|grayscale|grey|gray|simple|hand[- ]?drawn|hand[- ]?sketched|rough|crude|basic|pencil|ink|pen|charcoal|crayon|chalk|line|stick\\s+figure|childish|child's|children's|kid's";
 
+// Subset of MEDIUM_ADJECTIVES that describe the scribble's colorlessness rather than the subject.
+// These are stripped even when not followed by a medium noun (e.g. "a black and white house").
+const COLOR_ADJECTIVES = "black\\s+and\\s+white|monochrome|grayscale|grey|gray";
+
 /**
  * Strip medium/style phrases that describe the scribble rather than the subject.
  * BLIP often says things like "a black and white drawing of a cat" — we want just "a cat".
@@ -35,17 +39,31 @@ export function cleanCaption(raw) {
   );
   text = text.replace(noArticlePrefixRe, "");
 
-  // 5. Strip ", drawn/sketched/rendered in ..." suffixes
+  // 5. Strip standalone color adjectives that describe the medium, not the subject.
+  //    e.g. "a black and white house" -> "a house"
+  const colorAdjLeadRe = new RegExp(
+    `^(a|an|the)\\s+(${COLOR_ADJECTIVES})\\s+`,
+    "i"
+  );
+  text = text.replace(colorAdjLeadRe, "$1 ");
+  // Without article: "black and white house" -> "house"
+  const colorAdjBareRe = new RegExp(
+    `^(${COLOR_ADJECTIVES})\\s+`,
+    "i"
+  );
+  text = text.replace(colorAdjBareRe, "");
+
+  // 6. Strip ", drawn/sketched/rendered in ..." suffixes
   text = text.replace(/[,.]?\s+(drawn|sketched|rendered|depicted|shown)\s+(in|on|with)\s+.*$/i, "");
 
-  // 6. Strip trailing medium phrases: "..., in black and white"
+  // 7. Strip trailing medium phrases: "..., in black and white"
   const trailingRe = new RegExp(
     `[,.]?\\s+(in\\s+)?(${MEDIUM_ADJECTIVES})\\s*$`,
     "i"
   );
   text = text.replace(trailingRe, "");
 
-  // 7. Strip standalone medium phrases that might remain mid-sentence
+  // 8. Strip standalone medium phrases that might remain mid-sentence
   //    e.g. "a cat, black and white drawing" -> "a cat"
   const midRe = new RegExp(
     `[,.]?\\s*(${MEDIUM_ADJECTIVES})\\s+(${MEDIUM_NOUNS})\\s*[,.]?`,
@@ -53,7 +71,7 @@ export function cleanCaption(raw) {
   );
   text = text.replace(midRe, " ");
 
-  // 8. Clean up whitespace and dangling punctuation
+  // 9. Clean up whitespace and dangling punctuation
   text = text.replace(/^[\s,.:;]+|[\s,.:;]+$/g, "").replace(/\s{2,}/g, " ");
 
   return text;

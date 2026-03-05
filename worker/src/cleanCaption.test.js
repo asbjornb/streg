@@ -49,6 +49,25 @@ describe("cleanCaption", () => {
     expect(cleanCaption("it looks like a pencil drawing of a boat")).toBe("a boat");
   });
 
+  // Standalone color adjectives (no medium noun follows)
+  it("strips 'a black and white' before a non-medium noun", () => {
+    expect(cleanCaption("A black and white house amidst a vibrant, sunny day with bright blue sky and fluffy white clouds.")).toBe(
+      "A house amidst a vibrant, sunny day with bright blue sky and fluffy white clouds"
+    );
+  });
+
+  it("strips 'a monochrome' before a non-medium noun", () => {
+    expect(cleanCaption("a monochrome cat sitting on a fence")).toBe("a cat sitting on a fence");
+  });
+
+  it("strips 'a grayscale' before a non-medium noun", () => {
+    expect(cleanCaption("a grayscale dog running in a field")).toBe("a dog running in a field");
+  });
+
+  it("strips bare 'black and white' before a non-medium noun", () => {
+    expect(cleanCaption("black and white house on a hill")).toBe("house on a hill");
+  });
+
   // Trailing medium phrases
   it("strips trailing ', in black and white'", () => {
     expect(cleanCaption("a cat, in black and white")).toBe("a cat");
