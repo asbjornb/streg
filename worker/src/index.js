@@ -121,7 +121,7 @@ async function handleDescribe(request, env, cors) {
       "Prefer": "wait",
     },
     body: JSON.stringify({
-      version: "2e1dddc8621f72155f24cf2e0adbde548458d3cab9f00c0139eea840d0ac4746",
+      version: "f677695e5e89f8b236e52ecd1d3f01beb44c34606419bcc19345e046d8f786f9",
       input: {
         image,
         task: "visual_question_answering",
@@ -324,7 +324,7 @@ const MODEL_COSTS = {
   // ControlNet Scribble
   "435061a1b5a4c1e26740464bf786efdfa9cb3a3ac488595a2de23e143fdb0117": { name: "controlnet-scribble", costPerSec: 0.00115 },
   // BLIP-2
-  "2e1dddc8621f72155f24cf2e0adbde548458d3cab9f00c0139eea840d0ac4746": { name: "blip-2", costPerSec: 0.00115 },
+  "f677695e5e89f8b236e52ecd1d3f01beb44c34606419bcc19345e046d8f786f9": { name: "blip-2", costPerSec: 0.00115 },
 };
 
 // Default cost for models not in the map (e.g. Llama via model endpoint)

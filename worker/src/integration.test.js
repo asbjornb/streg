@@ -11,19 +11,23 @@ import { describe, it, expect, beforeAll } from "vitest";
 const REPLICATE_API_TOKEN = process.env.REPLICATE_API_TOKEN;
 const BASE = "https://api.replicate.com/v1";
 
-// Tiny 8×8 white PNG with a black diagonal stroke (valid base64 data URI).
-// Small enough to inline, large enough for models to accept.
+// 64×64 white PNG with a black scribble-like diagonal line.
+// Large enough for ControlNet to process (it needs reasonable resolution).
 const TEST_IMAGE = (() => {
-  // Build a minimal 8×8 PNG programmatically isn't practical in a one-liner,
-  // so we use a pre-encoded 4×4 red-pixel PNG (smallest valid PNG).
-  // Models accept any valid image — the content doesn't matter for integration smoke tests.
+  // Pre-encoded 64×64 PNG: white background with a black diagonal stroke.
+  // Generated programmatically — content is simple but valid for all models.
   return "data:image/png;base64," +
-    "iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAADklEQVQI12P4z8BQDwAEgAF/" +
-    "QualNQAAAABJRU5ErkJggg==";
+    "iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAAAAACPAi4CAAABAklEQVR4nKXX" +
+    "WRLCMAwDUN//0qF0zWI7kswv0hsGSmKbWSu9zIqCtaJgrShYKwpntSJczYJw" +
+    "F3Xh6cnCW1OFryUKXUkT+o4kDBVFGBuCMBV4Yc7TwhJnhTVNCk6YE7wsJbhR" +
+    "RvCThBAEcSHKwUIYQ4U4BQpJCBOyDCSkEUTIE4CwCeyF7fs7Yf8RNwLwLeUC" +
+    "8kOlAvSsZAL2uCYC+I+JBfRPGwrwuREJ+NEVCMTp6QvMAe4K1B3iCdw15gjk" +
+    "TboK7GW+CPQ8MQv8SDMJwlQ1CspgNwjSbNkL2njbCeKE/QnqkP8K8p7xCPqq" +
+    "cwuFbesSKgvfKZR2zr9QW3vNakB9dT+EH5StM6BMc+zhAAAAAElFTkSuQmCC";
 })();
 
 // Model versions used in production
-const BLIP2_VERSION = "2e1dddc8621f72155f24cf2e0adbde548458d3cab9f00c0139eea840d0ac4746";
+const BLIP2_VERSION = "f677695e5e89f8b236e52ecd1d3f01beb44c34606419bcc19345e046d8f786f9";
 const CONTROLNET_VERSION = "435061a1b5a4c1e26740464bf786efdfa9cb3a3ac488595a2de23e143fdb0117";
 
 function replicateHeaders(prefer) {
@@ -33,6 +37,19 @@ function replicateHeaders(prefer) {
   };
   if (prefer) h["Prefer"] = prefer;
   return h;
+}
+
+// Retry-aware fetch: waits and retries on 429 (rate limit) responses.
+// The Replicate account has a burst limit of 1 when credits are low,
+// so sequential tests need to respect retry_after between requests.
+async function fetchWithRetry(url, options, { maxRetries = 3 } = {}) {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    const res = await fetch(url, options);
+    if (res.status !== 429 || attempt === maxRetries) return res;
+    const body = await res.json();
+    const waitSec = body.retry_after || 10;
+    await new Promise(r => setTimeout(r, waitSec * 1000));
+  }
 }
 
 // Cancel a prediction so we don't burn GPU time waiting for full generation.
@@ -68,7 +85,7 @@ describe.skipIf(!REPLICATE_API_TOKEN)("Replicate integration tests", () => {
 
   describe("BLIP-2 caption", () => {
     it("returns a text caption for an image", async () => {
-      const res = await fetch(`${BASE}/predictions`, {
+      const res = await fetchWithRetry(`${BASE}/predictions`, {
         method: "POST",
         headers: replicateHeaders("wait"),
         body: JSON.stringify({
@@ -81,10 +98,9 @@ describe.skipIf(!REPLICATE_API_TOKEN)("Replicate integration tests", () => {
         }),
       });
 
-      expect(res.ok).toBe(true);
-
       const prediction = await res.json();
-      expect(prediction.status).toBe("succeeded");
+      expect(res.ok, `BLIP-2 HTTP ${res.status}: ${JSON.stringify(prediction)}`).toBe(true);
+      expect(prediction.status, `BLIP-2 prediction failed: ${JSON.stringify(prediction.error || prediction)}`).toBe("succeeded");
       expect(prediction.output).toBeTruthy();
       // Output should be a non-empty string
       const caption = typeof prediction.output === "string"
@@ -104,7 +120,7 @@ describe.skipIf(!REPLICATE_API_TOKEN)("Replicate integration tests", () => {
     it("generates an enriched prompt from a caption", async () => {
       const llmPrompt = `A child drew "a cat". Write a short image generation prompt (under 30 words) that describes this subject with a fitting, colorful background that contrasts with the subject so it stands out clearly. Specify children's picture book illustration, bright colors, clean edges. No filler words. Only output the prompt, nothing else.`;
 
-      const res = await fetch(`${BASE}/models/meta/meta-llama-3-8b-instruct/predictions`, {
+      const res = await fetchWithRetry(`${BASE}/models/meta/meta-llama-3-8b-instruct/predictions`, {
         method: "POST",
         headers: replicateHeaders("wait"),
         body: JSON.stringify({
@@ -116,10 +132,9 @@ describe.skipIf(!REPLICATE_API_TOKEN)("Replicate integration tests", () => {
         }),
       });
 
-      expect(res.ok).toBe(true);
-
       const prediction = await res.json();
-      expect(prediction.status).toBe("succeeded");
+      expect(res.ok, `Llama HTTP ${res.status}: ${JSON.stringify(prediction)}`).toBe(true);
+      expect(prediction.status, `Llama prediction failed: ${JSON.stringify(prediction.error || prediction)}`).toBe("succeeded");
       expect(prediction.output).toBeTruthy();
 
       // Output is an array of token strings
@@ -137,7 +152,7 @@ describe.skipIf(!REPLICATE_API_TOKEN)("Replicate integration tests", () => {
 
   describe("ControlNet Scribble generation", () => {
     it("creates an async prediction and returns a valid prediction ID", async () => {
-      const res = await fetch(`${BASE}/predictions`, {
+      const res = await fetchWithRetry(`${BASE}/predictions`, {
         method: "POST",
         headers: replicateHeaders("respond-async"),
         body: JSON.stringify({
@@ -157,9 +172,8 @@ describe.skipIf(!REPLICATE_API_TOKEN)("Replicate integration tests", () => {
         }),
       });
 
-      expect(res.ok).toBe(true);
-
       const prediction = await res.json();
+      expect(res.ok, `ControlNet HTTP ${res.status}: ${JSON.stringify(prediction)}`).toBe(true);
       expect(prediction.id).toBeTruthy();
       expect(typeof prediction.id).toBe("string");
       // Async predictions start in "starting" or "processing"
@@ -167,7 +181,7 @@ describe.skipIf(!REPLICATE_API_TOKEN)("Replicate integration tests", () => {
 
       // Poll until done to verify full pipeline works
       const result = await pollUntilDone(prediction.id);
-      expect(result.status).toBe("succeeded");
+      expect(result.status, `ControlNet prediction failed: ${result.error}`).toBe("succeeded");
       expect(Array.isArray(result.output)).toBe(true);
       expect(result.output.length).toBeGreaterThan(0);
       // Output should be image URLs
@@ -180,7 +194,7 @@ describe.skipIf(!REPLICATE_API_TOKEN)("Replicate integration tests", () => {
   describe("Status polling", () => {
     it("returns prediction status for a known prediction", async () => {
       // Create a quick sync prediction (BLIP-2) to get a real ID
-      const createRes = await fetch(`${BASE}/predictions`, {
+      const createRes = await fetchWithRetry(`${BASE}/predictions`, {
         method: "POST",
         headers: replicateHeaders("wait"),
         body: JSON.stringify({
@@ -192,8 +206,8 @@ describe.skipIf(!REPLICATE_API_TOKEN)("Replicate integration tests", () => {
         }),
       });
 
-      expect(createRes.ok).toBe(true);
       const created = await createRes.json();
+      expect(createRes.ok, `Status-poll BLIP-2 HTTP ${createRes.status}: ${JSON.stringify(created)}`).toBe(true);
       const predictionId = created.id;
       expect(predictionId).toBeTruthy();
 
