@@ -16,6 +16,8 @@ const HTML = `<!DOCTYPE html><html><body>
   <button id="eraser-btn"></button>
   <button id="undo-btn"></button>
   <button id="clear-btn"></button>
+  <button id="photo-btn"></button>
+  <input type="file" id="photo-input" accept="image/*" hidden>
   <div class="canvas-area" style="width:200px"><canvas id="drawing-canvas"></canvas></div>
   <div id="saving-indicator" hidden></div>
   <input id="pin-input"><button id="pin-submit"></button><p id="pin-error" hidden></p>
@@ -146,5 +148,25 @@ describe("empty canvas guard", () => {
     env.doc.getElementById("submit-btn").click();
 
     expect(env.alertCalls.some((a) => a[0] === "Draw something first!")).toBe(true);
+  });
+});
+
+describe("photo upload", () => {
+  it("clicking the photo button triggers the file input", () => {
+    const env = createEnv();
+    const photoInput = env.doc.getElementById("photo-input");
+    const clickSpy = vi.spyOn(photoInput, "click");
+
+    env.doc.getElementById("photo-btn").click();
+
+    expect(clickSpy).toHaveBeenCalled();
+  });
+
+  it("photo input exists with correct accept attribute", () => {
+    const env = createEnv();
+    const photoInput = env.doc.getElementById("photo-input");
+
+    expect(photoInput).toBeTruthy();
+    expect(photoInput.getAttribute("accept")).toBe("image/*");
   });
 });

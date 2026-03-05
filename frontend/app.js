@@ -117,6 +117,14 @@ function setupToolbar() {
 
   document.getElementById("undo-btn").addEventListener("click", undo);
   document.getElementById("clear-btn").addEventListener("click", clearCanvas);
+
+  // Photo upload
+  const photoBtn = document.getElementById("photo-btn");
+  const photoInput = document.getElementById("photo-input");
+  if (photoBtn && photoInput) {
+    photoBtn.addEventListener("click", () => photoInput.click());
+    photoInput.addEventListener("change", handlePhotoUpload);
+  }
 }
 
 function rgbToHex(rgb) {
@@ -228,6 +236,40 @@ function isCanvasEmpty() {
   return true;
 }
 
+
+// === Photo upload ===
+function handlePhotoUpload(e) {
+  const file = e.target.files && e.target.files[0];
+  if (!file) return;
+
+  // Reset the input so the same file can be re-selected
+  e.target.value = "";
+
+  const reader = new FileReader();
+  reader.onload = function (ev) {
+    const img = new Image();
+    img.onload = function () {
+      // Save current state for undo
+      saveSnapshot();
+
+      // Clear canvas to white
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // Scale image to fit canvas while preserving aspect ratio
+      const scale = Math.min(canvas.width / img.width, canvas.height / img.height);
+      const w = img.width * scale;
+      const h = img.height * scale;
+      const x = (canvas.width - w) / 2;
+      const y = (canvas.height - h) / 2;
+
+      ctx.drawImage(img, x, y, w, h);
+      scheduleSaveDraft();
+    };
+    img.src = ev.target.result;
+  };
+  reader.readAsDataURL(file);
+}
 
 // === Draft saving (localStorage) ===
 let saveTimer = null;
