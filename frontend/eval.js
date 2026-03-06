@@ -94,7 +94,9 @@ function setupTabs() {
 async function loadImages() {
   try {
     const res = await apiFetch("/eval/images");
-    testImages = await res.json();
+    if (!res.ok) throw new Error("Failed to load images");
+    const data = await res.json();
+    testImages = Array.isArray(data) ? data : [];
   } catch (e) {
     testImages = [];
   }
@@ -118,6 +120,10 @@ function setupImageUpload() {
         method: "POST",
         body: JSON.stringify({ name, dataUrl }),
       });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || `Server error ${res.status}`);
+      }
       const item = await res.json();
       testImages.push(item);
       selectedImageIds.add(item.id);
