@@ -1,28 +1,8 @@
 {
   "_doc": "Each variant defines the prompts/params sent to ControlNet Scribble. Edit these and re-run eval.mjs to compare results.",
   "variants": {
-    "current": {
-      "description": "Current production prompts",
-      "blip_question": "What are the main objects? Answer with the nouns/objects, no mention of drawing/sketch/black-and-white or other medium style words.",
-      "llm_enrichment": "A child drew \"{{caption}}\". Write a short image generation prompt (under 30 words) that describes this subject with a fitting, colorful background that contrasts with the subject so it stands out clearly. Specify children's picture book illustration, bright colors, clean edges. No filler words. Only output the prompt, nothing else.",
-      "a_prompt": "best quality, extremely detailed, colorful, vibrant, subject clearly distinct from background, contrasting background, well-defined edges",
-      "n_prompt": "longbody, lowres, bad anatomy, bad hands, missing fingers, extra digit, fewer digits, cropped, worst quality, low quality, subject blending into background, uniform texture, monochrome background",
-      "ddim_steps": 20,
-      "scale": 9,
-      "image_resolution": "512"
-    },
-    "more_steps": {
-      "description": "More diffusion steps for better quality",
-      "blip_question": "What are the main objects? Answer with the nouns/objects, no mention of drawing/sketch/black-and-white or other medium style words.",
-      "llm_enrichment": "A child drew \"{{caption}}\". Write a short image generation prompt (under 30 words) that describes this subject with a fitting, colorful background that contrasts with the subject so it stands out clearly. Specify children's picture book illustration, bright colors, clean edges. No filler words. Only output the prompt, nothing else.",
-      "a_prompt": "best quality, extremely detailed, colorful, vibrant, subject clearly distinct from background, contrasting background, well-defined edges",
-      "n_prompt": "longbody, lowres, bad anatomy, bad hands, missing fingers, extra digit, fewer digits, cropped, worst quality, low quality, subject blending into background, uniform texture, monochrome background",
-      "ddim_steps": 35,
-      "scale": 9,
-      "image_resolution": "512"
-    },
-    "storybook_style": {
-      "description": "Lean harder into storybook illustration style",
+    "storybook": {
+      "description": "Watercolor storybook style (current best)",
       "blip_question": "What is in this picture? Name only the subject, no style or medium words.",
       "llm_enrichment": "A child drew \"{{caption}}\". Write a vivid image prompt (under 25 words): the subject in a whimsical storybook scene with a complementary colorful background. Style: watercolor children's book illustration. Only output the prompt.",
       "a_prompt": "children's book illustration, watercolor, soft lighting, whimsical, colorful, detailed, charming, storybook art style",
@@ -31,14 +11,54 @@
       "scale": 7.5,
       "image_resolution": "512"
     },
-    "lower_guidance": {
-      "description": "Lower guidance scale — more creative, less over-saturated",
-      "blip_question": "What are the main objects? Answer with the nouns/objects, no mention of drawing/sketch/black-and-white or other medium style words.",
-      "llm_enrichment": "A child drew \"{{caption}}\". Write a short image generation prompt (under 30 words) that describes this subject with a fitting, colorful background that contrasts with the subject so it stands out clearly. Specify children's picture book illustration, bright colors, clean edges. No filler words. Only output the prompt, nothing else.",
-      "a_prompt": "best quality, colorful, vibrant, children's illustration, clean lines, well-defined edges",
-      "n_prompt": "lowres, bad anatomy, worst quality, low quality, monochrome, blurry, cropped",
+    "calm_subject": {
+      "description": "Calm background, subject stands out clearly",
+      "blip_question": "What are the main objects in this drawing? Answer with the nouns/objects/animals/monsters.",
+      "llm_enrichment": "A child drew \"{{caption}}\". Write a short image generation prompt (under 30 words) that describes this subject with a fitting calm background that makes the subject stand out clearly. Specify children's picture book illustration. No filler words. Only output the prompt, nothing else.",
+      "a_prompt": "best quality, subject clearly distinct from background",
+      "n_prompt": "longbody, lowres, bad anatomy, bad hands, missing fingers, extra digit, fewer digits, cropped, worst quality, low quality, subject blending into background",
+      "ddim_steps": 30,
+      "scale": 7.5,
+      "image_resolution": "512"
+    },
+    "gouache_folk": {
+      "description": "Gouache folk art — bold shapes, earthy palette",
+      "blip_question": "What is in this picture? Name only the subject, no style or medium words.",
+      "llm_enrichment": "A child drew \"{{caption}}\". Write an image prompt (under 25 words): the subject as a bold folk art piece with flat gouache colors and a simple patterned background. Only output the prompt.",
+      "a_prompt": "folk art, gouache painting, bold shapes, flat colors, earthy palette, decorative, hand-painted, matte finish",
+      "n_prompt": "photo, realistic, 3d render, glossy, gradient, blurry, lowres, bad anatomy, worst quality, low quality, monochrome",
+      "ddim_steps": 30,
+      "scale": 7.5,
+      "image_resolution": "512"
+    },
+    "soft_pastel": {
+      "description": "Soft pastel crayons — dreamy and textured",
+      "blip_question": "What is in this picture? Name only the subject, no style or medium words.",
+      "llm_enrichment": "A child drew \"{{caption}}\". Write an image prompt (under 25 words): the subject rendered in soft pastel crayons with a gentle gradient background. Style: dreamy pastel illustration for children. Only output the prompt.",
+      "a_prompt": "pastel crayon illustration, soft texture, dreamy, gentle colors, children's art, warm tones, hand-drawn feel",
+      "n_prompt": "photo, realistic, 3d render, sharp edges, dark, scary, violent, blurry, lowres, bad anatomy, worst quality, low quality, neon colors",
+      "ddim_steps": 30,
+      "scale": 7,
+      "image_resolution": "512"
+    },
+    "papercut": {
+      "description": "Paper cut-out collage style — layered and tactile",
+      "blip_question": "What is in this picture? Name only the subject, no style or medium words.",
+      "llm_enrichment": "A child drew \"{{caption}}\". Write an image prompt (under 25 words): the subject as a colorful paper cut-out collage with layered paper textures and a contrasting background. Only output the prompt.",
+      "a_prompt": "paper cut-out art, collage, layered paper, colorful, tactile, craft, children's illustration, textured",
+      "n_prompt": "photo, realistic, 3d render, smooth, digital, blurry, lowres, bad anatomy, worst quality, low quality, monochrome, flat",
+      "ddim_steps": 30,
+      "scale": 8,
+      "image_resolution": "512"
+    },
+    "anime_chibi": {
+      "description": "Cute anime/chibi style — big eyes, bright colors",
+      "blip_question": "What is in this picture? Name only the subject, no style or medium words.",
+      "llm_enrichment": "A child drew \"{{caption}}\". Write an image prompt (under 25 words): the subject in cute chibi anime style with big expressive eyes and a colorful simple background. Only output the prompt.",
+      "a_prompt": "chibi, anime style, cute, big eyes, bright colors, clean lines, kawaii, colorful, detailed",
+      "n_prompt": "photo, realistic, dark, scary, violent, ugly, blurry, lowres, bad anatomy, bad hands, worst quality, low quality, monochrome, mature",
       "ddim_steps": 25,
-      "scale": 6,
+      "scale": 8,
       "image_resolution": "512"
     }
   }
