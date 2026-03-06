@@ -30,7 +30,7 @@ html, body {
 
 /* === Layout === */
 #app {
-  max-width: 1200px;
+  max-width: none;
   margin: 0 auto;
   padding: 16px;
   min-height: 100vh;
