@@ -242,7 +242,7 @@ function renderVariants() {
         </div>
       </div>
       <div class="eval-variant-desc">${esc(v.description || "")}</div>
-      <div class="eval-variant-params">steps=${v.ddim_steps || 20} scale=${v.scale || 9} res=${v.image_resolution || "512"}${v.skip_background ? " | no background prompt" : ""}</div>
+      <div class="eval-variant-params">${v.approach === "flux-kontext" ? "FLUX Kontext" : `ControlNet | steps=${v.ddim_steps || 20} scale=${v.scale || 9} res=${v.image_resolution || "512"}`}${v.skip_background ? " | no background prompt" : ""}</div>
     </div>
   `).join("");
 
@@ -278,13 +278,16 @@ function openVariantEditor(variant) {
   const isNew = !variant;
   const v = variant || {
     name: "", description: "",
+    approach: "controlnet",
     blip_question: "What is in this picture? Name only the subject, no style or medium words.",
     llm_enrichment: 'A child drew "{{caption}}". Write a vivid image prompt (under 25 words): the subject in a whimsical storybook scene with a complementary colorful background. Style: watercolor children\'s book illustration. Only output the prompt.',
     a_prompt: "children's book illustration, watercolor, soft lighting, whimsical, colorful, detailed, charming, storybook art style",
     n_prompt: "photo, realistic, 3d render, dark, scary, violent, ugly, blurry, lowres, bad anatomy, bad hands, extra fingers, cropped, worst quality, low quality, monochrome",
     ddim_steps: 30, scale: 7.5, image_resolution: "512",
     skip_background: false,
+    flux_prompt: "",
   };
+  const isFlux = (v.approach || "controlnet") === "flux-kontext";
 
   // Create modal overlay
   const overlay = document.createElement("div");
@@ -295,18 +298,29 @@ function openVariantEditor(variant) {
       <div class="eval-form">
         <label>Name<input type="text" id="ve-name" value="${esc(v.name)}"></label>
         <label>Description<input type="text" id="ve-desc" value="${esc(v.description || "")}"></label>
-        <label>BLIP Question<textarea id="ve-blip" rows="2">${esc(v.blip_question || "")}</textarea></label>
-        <label class="eval-check-inline">
-          <input type="checkbox" id="ve-skip-bg" ${v.skip_background ? "checked" : ""}>
-          Skip background prompt (use BLIP caption directly, no LLM enrichment)
+        <label>Approach
+          <select id="ve-approach">
+            <option value="controlnet" ${!isFlux ? "selected" : ""}>ControlNet Scribble</option>
+            <option value="flux-kontext" ${isFlux ? "selected" : ""}>FLUX Kontext Pro</option>
+          </select>
         </label>
-        <label>LLM Enrichment Template<textarea id="ve-llm" rows="3" ${v.skip_background ? 'disabled style="opacity:0.5"' : ""}>${esc(v.llm_enrichment || "")}</textarea></label>
-        <label>Positive Prompt (a_prompt)<textarea id="ve-aprompt" rows="2">${esc(v.a_prompt || "")}</textarea></label>
-        <label>Negative Prompt (n_prompt)<textarea id="ve-nprompt" rows="2">${esc(v.n_prompt || "")}</textarea></label>
-        <div class="eval-form-row">
-          <label>Steps<input type="number" id="ve-steps" value="${v.ddim_steps || 20}" min="1" max="50"></label>
-          <label>Scale<input type="number" id="ve-scale" value="${v.scale || 9}" min="1" max="20" step="0.5"></label>
-          <label>Resolution<input type="text" id="ve-res" value="${v.image_resolution || "512"}"></label>
+        <div id="ve-flux-fields" ${!isFlux ? 'hidden' : ''}>
+          <label>FLUX Prompt<textarea id="ve-flux-prompt" rows="4">${esc(v.flux_prompt || "")}</textarea></label>
+        </div>
+        <div id="ve-controlnet-fields" ${isFlux ? 'hidden' : ''}>
+          <label>BLIP Question<textarea id="ve-blip" rows="2">${esc(v.blip_question || "")}</textarea></label>
+          <label class="eval-check-inline">
+            <input type="checkbox" id="ve-skip-bg" ${v.skip_background ? "checked" : ""}>
+            Skip background prompt (use BLIP caption directly, no LLM enrichment)
+          </label>
+          <label>LLM Enrichment Template<textarea id="ve-llm" rows="3" ${v.skip_background ? 'disabled style="opacity:0.5"' : ""}>${esc(v.llm_enrichment || "")}</textarea></label>
+          <label>Positive Prompt (a_prompt)<textarea id="ve-aprompt" rows="2">${esc(v.a_prompt || "")}</textarea></label>
+          <label>Negative Prompt (n_prompt)<textarea id="ve-nprompt" rows="2">${esc(v.n_prompt || "")}</textarea></label>
+          <div class="eval-form-row">
+            <label>Steps<input type="number" id="ve-steps" value="${v.ddim_steps || 20}" min="1" max="50"></label>
+            <label>Scale<input type="number" id="ve-scale" value="${v.scale || 9}" min="1" max="20" step="0.5"></label>
+            <label>Resolution<input type="text" id="ve-res" value="${v.image_resolution || "512"}"></label>
+          </div>
         </div>
       </div>
       <div class="eval-modal-buttons">
@@ -320,6 +334,16 @@ function openVariantEditor(variant) {
   overlay.querySelector("#ve-cancel").addEventListener("click", () => overlay.remove());
   overlay.addEventListener("click", (e) => { if (e.target === overlay) overlay.remove(); });
 
+  // Toggle approach fields
+  const approachSelect = overlay.querySelector("#ve-approach");
+  const fluxFields = overlay.querySelector("#ve-flux-fields");
+  const controlnetFields = overlay.querySelector("#ve-controlnet-fields");
+  approachSelect.addEventListener("change", () => {
+    const flux = approachSelect.value === "flux-kontext";
+    fluxFields.hidden = !flux;
+    controlnetFields.hidden = flux;
+  });
+
   // Toggle LLM enrichment textarea when skip_background changes
   const skipBgCheckbox = overlay.querySelector("#ve-skip-bg");
   const llmTextarea = overlay.querySelector("#ve-llm");
@@ -329,18 +353,34 @@ function openVariantEditor(variant) {
   });
 
   overlay.querySelector("#ve-save").addEventListener("click", async () => {
+    const approach = overlay.querySelector("#ve-approach").value;
     const data = {
       name: overlay.querySelector("#ve-name").value.trim(),
       description: overlay.querySelector("#ve-desc").value.trim(),
-      blip_question: overlay.querySelector("#ve-blip").value.trim(),
-      llm_enrichment: overlay.querySelector("#ve-llm").value.trim(),
-      a_prompt: overlay.querySelector("#ve-aprompt").value.trim(),
-      n_prompt: overlay.querySelector("#ve-nprompt").value.trim(),
-      ddim_steps: parseInt(overlay.querySelector("#ve-steps").value) || 20,
-      scale: parseFloat(overlay.querySelector("#ve-scale").value) || 9,
-      image_resolution: overlay.querySelector("#ve-res").value.trim() || "512",
-      skip_background: overlay.querySelector("#ve-skip-bg").checked,
+      approach,
     };
+
+    if (approach === "flux-kontext") {
+      data.flux_prompt = overlay.querySelector("#ve-flux-prompt").value.trim();
+      data.skip_background = true;
+      data.blip_question = "";
+      data.llm_enrichment = "";
+      data.a_prompt = "";
+      data.n_prompt = "";
+      data.ddim_steps = 0;
+      data.scale = 0;
+      data.image_resolution = "1024";
+    } else {
+      data.blip_question = overlay.querySelector("#ve-blip").value.trim();
+      data.llm_enrichment = overlay.querySelector("#ve-llm").value.trim();
+      data.a_prompt = overlay.querySelector("#ve-aprompt").value.trim();
+      data.n_prompt = overlay.querySelector("#ve-nprompt").value.trim();
+      data.ddim_steps = parseInt(overlay.querySelector("#ve-steps").value) || 20;
+      data.scale = parseFloat(overlay.querySelector("#ve-scale").value) || 9;
+      data.image_resolution = overlay.querySelector("#ve-res").value.trim() || "512";
+      data.skip_background = overlay.querySelector("#ve-skip-bg").checked;
+      data.flux_prompt = "";
+    }
 
     if (!data.name) { alert("Name is required"); return; }
 
@@ -445,28 +485,44 @@ async function runEval() {
       renderResultsGrid();
 
       try {
-        // Step 1: Describe
-        const descRes = await apiFetch("/eval/describe", {
-          method: "POST",
-          body: JSON.stringify({
-            image: imageDataUrl,
-            blip_question: variant.blip_question,
-            llm_enrichment: variant.llm_enrichment,
-            skip_background: variant.skip_background || false,
-          }),
-        });
-        const desc = await descRes.json();
-        if (desc.error) throw new Error(desc.detail || desc.error);
+        const isFlux = variant.approach === "flux-kontext";
+        let prompt, caption, cleanedCaption;
 
-        results[cellKey] = { ...results[cellKey], caption: desc.caption, cleanedCaption: desc.cleanedCaption, prompt: desc.prompt, status: "generating" };
-        renderResultsGrid();
+        if (isFlux) {
+          // FLUX Kontext: skip describe, use the fixed prompt directly
+          prompt = variant.flux_prompt || "Transform this child's drawing into a photorealistic image, preserving all shapes and imperfections exactly.";
+          caption = "";
+          cleanedCaption = "";
+          results[cellKey] = { ...results[cellKey], prompt, status: "generating" };
+          renderResultsGrid();
+        } else {
+          // ControlNet: describe step (BLIP + LLM)
+          const descRes = await apiFetch("/eval/describe", {
+            method: "POST",
+            body: JSON.stringify({
+              image: imageDataUrl,
+              blip_question: variant.blip_question,
+              llm_enrichment: variant.llm_enrichment,
+              skip_background: variant.skip_background || false,
+            }),
+          });
+          const desc = await descRes.json();
+          if (desc.error) throw new Error(desc.detail || desc.error);
+          prompt = desc.prompt;
+          caption = desc.caption;
+          cleanedCaption = desc.cleanedCaption;
 
-        // Step 2: Generate
+          results[cellKey] = { ...results[cellKey], caption, cleanedCaption, prompt, status: "generating" };
+          renderResultsGrid();
+        }
+
+        // Generate
         const genRes = await apiFetch("/eval/generate", {
           method: "POST",
           body: JSON.stringify({
             image: imageDataUrl,
-            prompt: desc.prompt,
+            prompt,
+            approach: variant.approach || "controlnet",
             a_prompt: variant.a_prompt,
             n_prompt: variant.n_prompt,
             ddim_steps: variant.ddim_steps,
@@ -477,16 +533,22 @@ async function runEval() {
         const gen = await genRes.json();
         if (gen.error) throw new Error(gen.detail || gen.error);
 
-        // Step 3: Poll
+        // Poll
         const output = await pollPrediction(gen.id);
-        // ControlNet returns [control_image, generated_image] — we want the generated one
-        const outputUrl = Array.isArray(output) && output.length > 1 ? output[1] : (Array.isArray(output) ? output[0] : output);
+        let outputUrl;
+        if (isFlux) {
+          // FLUX Kontext returns a single URL string
+          outputUrl = typeof output === "string" ? output : (Array.isArray(output) ? output[0] : output);
+        } else {
+          // ControlNet returns [control_image, generated_image] — we want the generated one
+          outputUrl = Array.isArray(output) && output.length > 1 ? output[1] : (Array.isArray(output) ? output[0] : output);
+        }
 
         results[cellKey] = {
           imageId, variantId,
-          caption: desc.caption,
-          cleanedCaption: desc.cleanedCaption,
-          prompt: desc.prompt,
+          caption,
+          cleanedCaption,
+          prompt,
           outputImageUrl: outputUrl,
           status: "done",
         };
@@ -537,26 +599,41 @@ async function rerunCell(imageId, variantId) {
   try {
     const imgRes = await apiFetch("/eval/images/" + imageId);
     const imgData = await imgRes.json();
+    const isFlux = variant.approach === "flux-kontext";
 
-    const descRes = await apiFetch("/eval/describe", {
-      method: "POST",
-      body: JSON.stringify({
-        image: imgData.dataUrl,
-        blip_question: variant.blip_question,
-        llm_enrichment: variant.llm_enrichment,
-      }),
-    });
-    const desc = await descRes.json();
-    if (desc.error) throw new Error(desc.detail || desc.error);
+    let prompt, caption, cleanedCaption;
+    if (isFlux) {
+      prompt = variant.flux_prompt || "Transform this child's drawing into a photorealistic image, preserving all shapes and imperfections exactly.";
+      caption = "";
+      cleanedCaption = "";
+      results[cellKey] = { ...results[cellKey], prompt, status: "generating" };
+      renderResultsGrid();
+    } else {
+      const descRes = await apiFetch("/eval/describe", {
+        method: "POST",
+        body: JSON.stringify({
+          image: imgData.dataUrl,
+          blip_question: variant.blip_question,
+          llm_enrichment: variant.llm_enrichment,
+          skip_background: variant.skip_background || false,
+        }),
+      });
+      const desc = await descRes.json();
+      if (desc.error) throw new Error(desc.detail || desc.error);
+      prompt = desc.prompt;
+      caption = desc.caption;
+      cleanedCaption = desc.cleanedCaption;
 
-    results[cellKey] = { ...results[cellKey], caption: desc.caption, prompt: desc.prompt, status: "generating" };
-    renderResultsGrid();
+      results[cellKey] = { ...results[cellKey], caption, cleanedCaption, prompt, status: "generating" };
+      renderResultsGrid();
+    }
 
     const genRes = await apiFetch("/eval/generate", {
       method: "POST",
       body: JSON.stringify({
         image: imgData.dataUrl,
-        prompt: desc.prompt,
+        prompt,
+        approach: variant.approach || "controlnet",
         a_prompt: variant.a_prompt,
         n_prompt: variant.n_prompt,
         ddim_steps: variant.ddim_steps,
@@ -568,10 +645,14 @@ async function rerunCell(imageId, variantId) {
     if (gen.error) throw new Error(gen.detail || gen.error);
 
     const output = await pollPrediction(gen.id);
-    // ControlNet returns [control_image, generated_image] — we want the generated one
-    const outputUrl = Array.isArray(output) && output.length > 1 ? output[1] : (Array.isArray(output) ? output[0] : output);
+    let outputUrl;
+    if (isFlux) {
+      outputUrl = typeof output === "string" ? output : (Array.isArray(output) ? output[0] : output);
+    } else {
+      outputUrl = Array.isArray(output) && output.length > 1 ? output[1] : (Array.isArray(output) ? output[0] : output);
+    }
 
-    results[cellKey] = { imageId, variantId, caption: desc.caption, prompt: desc.prompt, outputImageUrl: outputUrl, status: "done" };
+    results[cellKey] = { imageId, variantId, caption, cleanedCaption, prompt, outputImageUrl: outputUrl, status: "done" };
 
     await apiFetch(`/eval/results/${imageId}/${variantId}`, {
       method: "PUT",

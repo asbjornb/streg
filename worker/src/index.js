@@ -166,6 +166,7 @@ async function sign(data, secret) {
 
 const BLIP_VERSION = "f677695e5e89f8b236e52ecd1d3f01beb44c34606419bcc19345e046d8f786f9";
 const CONTROLNET_VERSION = "435061a1b5a4c1e26740464bf786efdfa9cb3a3ac488595a2de23e143fdb0117";
+const FLUX_KONTEXT_MODEL = "black-forest-labs/flux-kontext-pro";
 const LLAMA_MODEL_NAME = "meta-llama-3-8b";
 
 const DEFAULT_BLIP_QUESTION = "What is in this picture? Name only the subject, no style or medium words.";
@@ -257,6 +258,34 @@ async function callControlNet(env, { image, prompt, a_prompt, n_prompt, ddim_ste
       "Prefer": "respond-async",
     },
     body: JSON.stringify({ version: CONTROLNET_VERSION, input }),
+  });
+
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(parseReplicateError(res.status, body));
+  }
+
+  return res.json();
+}
+
+async function callFluxKontext(env, { image, prompt, seed, aspect_ratio, output_format }) {
+  const input = {
+    input_image: image,
+    prompt,
+    seed: seed ?? Math.floor(Math.random() * 2147483647),
+    aspect_ratio: aspect_ratio || "match_input_image",
+    output_format: output_format || "png",
+  };
+  console.log("REPLICATE_PROMPT", JSON.stringify({ step: "flux-kontext-generate", prompt }));
+
+  const res = await fetch(`https://api.replicate.com/v1/models/${FLUX_KONTEXT_MODEL}/predictions`, {
+    method: "POST",
+    headers: {
+      "Authorization": "Bearer " + env.REPLICATE_API_TOKEN,
+      "Content-Type": "application/json",
+      "Prefer": "respond-async",
+    },
+    body: JSON.stringify({ input }),
   });
 
   if (!res.ok) {
@@ -460,6 +489,7 @@ async function handleEvalRoutes(url, request, env, cors) {
     const defaults = {
       storybook: {
         name: "storybook", description: "Watercolor storybook style (current best)",
+        approach: "controlnet",
         blip_question: DEFAULT_BLIP_QUESTION,
         llm_enrichment: DEFAULT_LLM_ENRICHMENT,
         a_prompt: DEFAULT_A_PROMPT, n_prompt: DEFAULT_N_PROMPT,
@@ -467,6 +497,7 @@ async function handleEvalRoutes(url, request, env, cors) {
       },
       calm_subject: {
         name: "calm_subject", description: "Calm background, subject stands out clearly",
+        approach: "controlnet",
         blip_question: "What are the main objects in this drawing? Answer with the nouns/objects/animals/monsters.",
         llm_enrichment: 'A child drew "{{caption}}". Write a short image generation prompt (under 30 words) that describes this subject with a fitting calm background that makes the subject stand out clearly. Specify children\'s picture book illustration. No filler words. Only output the prompt, nothing else.',
         a_prompt: "best quality, subject clearly distinct from background",
@@ -475,6 +506,7 @@ async function handleEvalRoutes(url, request, env, cors) {
       },
       gouache_folk: {
         name: "gouache_folk", description: "Gouache folk art — bold shapes, earthy palette",
+        approach: "controlnet",
         blip_question: "What is in this picture? Name only the subject, no style or medium words.",
         llm_enrichment: 'A child drew "{{caption}}". Write an image prompt (under 25 words): the subject as a bold folk art piece with flat gouache colors and a simple patterned background. Only output the prompt.',
         a_prompt: "folk art, gouache painting, bold shapes, flat colors, earthy palette, decorative, hand-painted, matte finish",
@@ -483,6 +515,7 @@ async function handleEvalRoutes(url, request, env, cors) {
       },
       soft_pastel: {
         name: "soft_pastel", description: "Soft pastel crayons — dreamy and textured",
+        approach: "controlnet",
         blip_question: "What is in this picture? Name only the subject, no style or medium words.",
         llm_enrichment: 'A child drew "{{caption}}". Write an image prompt (under 25 words): the subject rendered in soft pastel crayons with a gentle gradient background. Style: dreamy pastel illustration for children. Only output the prompt.',
         a_prompt: "pastel crayon illustration, soft texture, dreamy, gentle colors, children's art, warm tones, hand-drawn feel",
@@ -491,6 +524,7 @@ async function handleEvalRoutes(url, request, env, cors) {
       },
       papercut: {
         name: "papercut", description: "Paper cut-out collage style — layered and tactile",
+        approach: "controlnet",
         blip_question: "What is in this picture? Name only the subject, no style or medium words.",
         llm_enrichment: 'A child drew "{{caption}}". Write an image prompt (under 25 words): the subject as a colorful paper cut-out collage with layered paper textures and a contrasting background. Only output the prompt.',
         a_prompt: "paper cut-out art, collage, layered paper, colorful, tactile, craft, children's illustration, textured",
@@ -499,11 +533,20 @@ async function handleEvalRoutes(url, request, env, cors) {
       },
       anime_chibi: {
         name: "anime_chibi", description: "Cute anime/chibi style — big eyes, bright colors",
+        approach: "controlnet",
         blip_question: "What is in this picture? Name only the subject, no style or medium words.",
         llm_enrichment: 'A child drew "{{caption}}". Write an image prompt (under 25 words): the subject in cute chibi anime style with big expressive eyes and a colorful simple background. Only output the prompt.',
         a_prompt: "chibi, anime style, cute, big eyes, bright colors, clean lines, kawaii, colorful, detailed",
         n_prompt: "photo, realistic, dark, scary, violent, ugly, blurry, lowres, bad anatomy, bad hands, worst quality, low quality, monochrome, mature",
         ddim_steps: 25, scale: 8, image_resolution: "512",
+      },
+      flux_transform: {
+        name: "flux_transform", description: "FLUX Kontext — transforms drawing to photorealistic/3D render, preserving shape",
+        approach: "flux-kontext",
+        flux_prompt: "Take this drawing created by my child and transform it into a photorealistic image or realistic 3D render. I don't know what it's supposed to be — it could be a creature, object, or something completely from their imagination. Keep the original shape, proportions, line lengths, and all imperfections exactly as they are in the drawing — including any slanted eyes, uneven lines, or strange markings. Do not correct, smooth out, or change any details of their design.",
+        blip_question: "", llm_enrichment: "", a_prompt: "", n_prompt: "",
+        ddim_steps: 0, scale: 0, image_resolution: "1024",
+        skip_background: true,
       },
     };
     for (const v of Object.values(defaults)) {
@@ -560,20 +603,29 @@ async function handleEvalRoutes(url, request, env, cors) {
     }
   }
 
-  // --- Eval Generate (variant-aware) ---
+  // --- Eval Generate (variant-aware, supports controlnet + flux-kontext) ---
   if (path === "/eval/generate" && method === "POST") {
-    const { image, prompt, a_prompt, n_prompt, ddim_steps, scale, image_resolution } = await request.json();
+    const { image, prompt, a_prompt, n_prompt, ddim_steps, scale, image_resolution, approach } = await request.json();
     if (!image || !prompt) return jsonResponse({ error: "Need image and prompt" }, 400, cors);
 
     try {
-      const prediction = await callControlNet(env, {
-        image, prompt, a_prompt, n_prompt,
-        ddim_steps: ddim_steps || 20,
-        scale: scale || 9,
-        image_resolution: image_resolution || "512",
-        seed: 42, // fixed seed for eval comparison
-      });
-      return jsonResponse({ id: prediction.id, status: prediction.status }, 200, cors);
+      let prediction;
+      if (approach === "flux-kontext") {
+        prediction = await callFluxKontext(env, {
+          image, prompt,
+          seed: 42,
+          output_format: "png",
+        });
+      } else {
+        prediction = await callControlNet(env, {
+          image, prompt, a_prompt, n_prompt,
+          ddim_steps: ddim_steps || 20,
+          scale: scale || 9,
+          image_resolution: image_resolution || "512",
+          seed: 42, // fixed seed for eval comparison
+        });
+      }
+      return jsonResponse({ id: prediction.id, status: prediction.status, approach: approach || "controlnet" }, 200, cors);
     } catch (e) {
       return jsonResponse({ error: "AI service error", step: "generate", detail: e?.message }, 502, cors);
     }
@@ -635,6 +687,9 @@ const MODEL_COSTS = {
   // BLIP-2
   "f677695e5e89f8b236e52ecd1d3f01beb44c34606419bcc19345e046d8f786f9": { name: "blip-2", costPerSec: 0.00115 },
 };
+
+// FLUX Kontext Pro costs ~$0.04 per image (flat rate, not per-second)
+const FLUX_KONTEXT_FLAT_COST = 0.04;
 
 // Default cost for models not in the map (e.g. Llama via model endpoint)
 const DEFAULT_COST_PER_SEC = 0.00050;
