@@ -278,11 +278,11 @@ function openVariantEditor(variant) {
   const isNew = !variant;
   const v = variant || {
     name: "", description: "",
-    blip_question: "What are the main objects? Answer with the nouns/objects, no mention of drawing/sketch/black-and-white or other medium style words.",
-    llm_enrichment: 'A child drew "{{caption}}". Write a short image generation prompt (under 30 words) that describes this subject with a fitting, colorful background that contrasts with the subject so it stands out clearly. Specify children\'s picture book illustration, bright colors, clean edges. No filler words. Only output the prompt, nothing else.',
-    a_prompt: "best quality, extremely detailed, colorful, vibrant, subject clearly distinct from background, contrasting background, well-defined edges",
-    n_prompt: "longbody, lowres, bad anatomy, bad hands, missing fingers, extra digit, fewer digits, cropped, worst quality, low quality, subject blending into background, uniform texture, monochrome background",
-    ddim_steps: 20, scale: 9, image_resolution: "512",
+    blip_question: "What is in this picture? Name only the subject, no style or medium words.",
+    llm_enrichment: 'A child drew "{{caption}}". Write a vivid image prompt (under 25 words): the subject in a whimsical storybook scene with a complementary colorful background. Style: watercolor children\'s book illustration. Only output the prompt.',
+    a_prompt: "children's book illustration, watercolor, soft lighting, whimsical, colorful, detailed, charming, storybook art style",
+    n_prompt: "photo, realistic, 3d render, dark, scary, violent, ugly, blurry, lowres, bad anatomy, bad hands, extra fingers, cropped, worst quality, low quality, monochrome",
+    ddim_steps: 30, scale: 7.5, image_resolution: "512",
     skip_background: false,
   };
 

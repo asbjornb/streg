@@ -168,10 +168,10 @@ const BLIP_VERSION = "f677695e5e89f8b236e52ecd1d3f01beb44c34606419bcc19345e046d8
 const CONTROLNET_VERSION = "435061a1b5a4c1e26740464bf786efdfa9cb3a3ac488595a2de23e143fdb0117";
 const LLAMA_MODEL_NAME = "meta-llama-3-8b";
 
-const DEFAULT_BLIP_QUESTION = "What are the main objects? Answer with the nouns/objects, no mention of drawing/sketch/black-and-white or other medium style words.";
-const DEFAULT_LLM_ENRICHMENT = 'A child drew "{{caption}}". Write a short image generation prompt (under 30 words) that describes this subject with a fitting, colorful background that contrasts with the subject so it stands out clearly. Specify children\'s picture book illustration, bright colors, clean edges. No filler words. Only output the prompt, nothing else.';
-const DEFAULT_A_PROMPT = "best quality, extremely detailed, colorful, vibrant, subject clearly distinct from background, contrasting background, well-defined edges";
-const DEFAULT_N_PROMPT = "longbody, lowres, bad anatomy, bad hands, missing fingers, extra digit, fewer digits, cropped, worst quality, low quality, subject blending into background, uniform texture, monochrome background";
+const DEFAULT_BLIP_QUESTION = "What is in this picture? Name only the subject, no style or medium words.";
+const DEFAULT_LLM_ENRICHMENT = 'A child drew "{{caption}}". Write a vivid image prompt (under 25 words): the subject in a whimsical storybook scene with a complementary colorful background. Style: watercolor children\'s book illustration. Only output the prompt.';
+const DEFAULT_A_PROMPT = "children's book illustration, watercolor, soft lighting, whimsical, colorful, detailed, charming, storybook art style";
+const DEFAULT_N_PROMPT = "photo, realistic, 3d render, dark, scary, violent, ugly, blurry, lowres, bad anatomy, bad hands, extra fingers, cropped, worst quality, low quality, monochrome";
 
 async function callBlip(env, image, question) {
   const q = question || DEFAULT_BLIP_QUESTION;
@@ -240,8 +240,8 @@ async function callControlNet(env, { image, prompt, a_prompt, n_prompt, ddim_ste
     prompt,
     num_samples: "1",
     image_resolution: image_resolution || "512",
-    ddim_steps: ddim_steps || 20,
-    scale: scale || 9,
+    ddim_steps: ddim_steps || 30,
+    scale: scale || 7.5,
     seed: seed ?? Math.floor(Math.random() * 2147483647),
     eta: 0,
     a_prompt: a_prompt || DEFAULT_A_PROMPT,
@@ -457,28 +457,52 @@ async function handleEvalRoutes(url, request, env, cors) {
       return jsonResponse({ ok: false, message: "Variants already exist" }, 200, cors);
     }
     const defaults = {
-      current: {
-        name: "current", description: "Current production prompts",
+      storybook: {
+        name: "storybook", description: "Watercolor storybook style (current best)",
         blip_question: DEFAULT_BLIP_QUESTION,
         llm_enrichment: DEFAULT_LLM_ENRICHMENT,
         a_prompt: DEFAULT_A_PROMPT, n_prompt: DEFAULT_N_PROMPT,
-        ddim_steps: 20, scale: 9, image_resolution: "512",
-      },
-      storybook: {
-        name: "storybook", description: "Watercolor storybook style",
-        blip_question: "What is in this picture? Name only the subject, no style or medium words.",
-        llm_enrichment: 'A child drew "{{caption}}". Write a vivid image prompt (under 25 words): the subject in a whimsical storybook scene with a complementary colorful background. Style: watercolor children\'s book illustration. Only output the prompt.',
-        a_prompt: "children's book illustration, watercolor, soft lighting, whimsical, colorful, detailed, charming, storybook art style",
-        n_prompt: "photo, realistic, 3d render, dark, scary, violent, ugly, blurry, lowres, bad anatomy, bad hands, extra fingers, cropped, worst quality, low quality, monochrome",
         ddim_steps: 30, scale: 7.5, image_resolution: "512",
       },
-      lower_guidance: {
-        name: "lower_guidance", description: "Lower guidance scale, less saturation",
-        blip_question: DEFAULT_BLIP_QUESTION,
-        llm_enrichment: DEFAULT_LLM_ENRICHMENT,
-        a_prompt: "best quality, colorful, vibrant, children's illustration, clean lines, well-defined edges",
-        n_prompt: "lowres, bad anatomy, worst quality, low quality, monochrome, blurry, cropped",
-        ddim_steps: 25, scale: 6, image_resolution: "512",
+      calm_subject: {
+        name: "calm_subject", description: "Calm background, subject stands out clearly",
+        blip_question: "What are the main objects in this drawing? Answer with the nouns/objects/animals/monsters.",
+        llm_enrichment: 'A child drew "{{caption}}". Write a short image generation prompt (under 30 words) that describes this subject with a fitting calm background that makes the subject stand out clearly. Specify children\'s picture book illustration. No filler words. Only output the prompt, nothing else.',
+        a_prompt: "best quality, subject clearly distinct from background",
+        n_prompt: "longbody, lowres, bad anatomy, bad hands, missing fingers, extra digit, fewer digits, cropped, worst quality, low quality, subject blending into background",
+        ddim_steps: 30, scale: 7.5, image_resolution: "512",
+      },
+      gouache_folk: {
+        name: "gouache_folk", description: "Gouache folk art — bold shapes, earthy palette",
+        blip_question: "What is in this picture? Name only the subject, no style or medium words.",
+        llm_enrichment: 'A child drew "{{caption}}". Write an image prompt (under 25 words): the subject as a bold folk art piece with flat gouache colors and a simple patterned background. Only output the prompt.',
+        a_prompt: "folk art, gouache painting, bold shapes, flat colors, earthy palette, decorative, hand-painted, matte finish",
+        n_prompt: "photo, realistic, 3d render, glossy, gradient, blurry, lowres, bad anatomy, worst quality, low quality, monochrome",
+        ddim_steps: 30, scale: 7.5, image_resolution: "512",
+      },
+      soft_pastel: {
+        name: "soft_pastel", description: "Soft pastel crayons — dreamy and textured",
+        blip_question: "What is in this picture? Name only the subject, no style or medium words.",
+        llm_enrichment: 'A child drew "{{caption}}". Write an image prompt (under 25 words): the subject rendered in soft pastel crayons with a gentle gradient background. Style: dreamy pastel illustration for children. Only output the prompt.',
+        a_prompt: "pastel crayon illustration, soft texture, dreamy, gentle colors, children's art, warm tones, hand-drawn feel",
+        n_prompt: "photo, realistic, 3d render, sharp edges, dark, scary, violent, blurry, lowres, bad anatomy, worst quality, low quality, neon colors",
+        ddim_steps: 30, scale: 7, image_resolution: "512",
+      },
+      papercut: {
+        name: "papercut", description: "Paper cut-out collage style — layered and tactile",
+        blip_question: "What is in this picture? Name only the subject, no style or medium words.",
+        llm_enrichment: 'A child drew "{{caption}}". Write an image prompt (under 25 words): the subject as a colorful paper cut-out collage with layered paper textures and a contrasting background. Only output the prompt.',
+        a_prompt: "paper cut-out art, collage, layered paper, colorful, tactile, craft, children's illustration, textured",
+        n_prompt: "photo, realistic, 3d render, smooth, digital, blurry, lowres, bad anatomy, worst quality, low quality, monochrome, flat",
+        ddim_steps: 30, scale: 8, image_resolution: "512",
+      },
+      anime_chibi: {
+        name: "anime_chibi", description: "Cute anime/chibi style — big eyes, bright colors",
+        blip_question: "What is in this picture? Name only the subject, no style or medium words.",
+        llm_enrichment: 'A child drew "{{caption}}". Write an image prompt (under 25 words): the subject in cute chibi anime style with big expressive eyes and a colorful simple background. Only output the prompt.',
+        a_prompt: "chibi, anime style, cute, big eyes, bright colors, clean lines, kawaii, colorful, detailed",
+        n_prompt: "photo, realistic, dark, scary, violent, ugly, blurry, lowres, bad anatomy, bad hands, worst quality, low quality, monochrome, mature",
+        ddim_steps: 25, scale: 8, image_resolution: "512",
       },
     };
     for (const v of Object.values(defaults)) {
