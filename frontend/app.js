@@ -73,14 +73,14 @@ function setupCanvas() {
   const area = document.querySelector(".canvas-area");
   const forceLandscape = shouldForceLandscapeCanvas();
   const w = forceLandscape ? window.innerWidth : area.clientWidth;
-  // On landscape mobile: fill viewport for max drawing area
+  // On landscape mobile: fill viewport
   // On portrait mobile: use most of the viewport height for drawing
-  // On desktop: keep the original 3:4 / 50vh cap
+  // On desktop: use available height minus space for toolbar/prompt (~180px)
   const h = forceLandscape
     ? window.innerHeight
     : (isMobileViewport()
-      ? Math.min(w, window.innerHeight * 0.7)
-      : Math.min(w * 0.75, window.innerHeight * 0.5));
+      ? Math.min(w, window.innerHeight * 0.8)
+      : Math.max(300, window.innerHeight - 180));
 
   canvas.width = w;
   canvas.height = h;
