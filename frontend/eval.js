@@ -236,7 +236,7 @@ function renderVariants() {
         </div>
       </div>
       <div class="eval-variant-desc">${esc(v.description || "")}</div>
-      <div class="eval-variant-params">steps=${v.ddim_steps || 20} scale=${v.scale || 9} res=${v.image_resolution || "512"}</div>
+      <div class="eval-variant-params">steps=${v.ddim_steps || 20} scale=${v.scale || 9} res=${v.image_resolution || "512"}${v.skip_background ? " | no background prompt" : ""}</div>
     </div>
   `).join("");
 
@@ -277,6 +277,7 @@ function openVariantEditor(variant) {
     a_prompt: "best quality, extremely detailed, colorful, vibrant, subject clearly distinct from background, contrasting background, well-defined edges",
     n_prompt: "longbody, lowres, bad anatomy, bad hands, missing fingers, extra digit, fewer digits, cropped, worst quality, low quality, subject blending into background, uniform texture, monochrome background",
     ddim_steps: 20, scale: 9, image_resolution: "512",
+    skip_background: false,
   };
 
   // Create modal overlay
@@ -289,7 +290,11 @@ function openVariantEditor(variant) {
         <label>Name<input type="text" id="ve-name" value="${esc(v.name)}"></label>
         <label>Description<input type="text" id="ve-desc" value="${esc(v.description || "")}"></label>
         <label>BLIP Question<textarea id="ve-blip" rows="2">${esc(v.blip_question || "")}</textarea></label>
-        <label>LLM Enrichment Template<textarea id="ve-llm" rows="3">${esc(v.llm_enrichment || "")}</textarea></label>
+        <label class="eval-check-inline">
+          <input type="checkbox" id="ve-skip-bg" ${v.skip_background ? "checked" : ""}>
+          Skip background prompt (use BLIP caption directly, no LLM enrichment)
+        </label>
+        <label>LLM Enrichment Template<textarea id="ve-llm" rows="3" ${v.skip_background ? 'disabled style="opacity:0.5"' : ""}>${esc(v.llm_enrichment || "")}</textarea></label>
         <label>Positive Prompt (a_prompt)<textarea id="ve-aprompt" rows="2">${esc(v.a_prompt || "")}</textarea></label>
         <label>Negative Prompt (n_prompt)<textarea id="ve-nprompt" rows="2">${esc(v.n_prompt || "")}</textarea></label>
         <div class="eval-form-row">
@@ -309,6 +314,14 @@ function openVariantEditor(variant) {
   overlay.querySelector("#ve-cancel").addEventListener("click", () => overlay.remove());
   overlay.addEventListener("click", (e) => { if (e.target === overlay) overlay.remove(); });
 
+  // Toggle LLM enrichment textarea when skip_background changes
+  const skipBgCheckbox = overlay.querySelector("#ve-skip-bg");
+  const llmTextarea = overlay.querySelector("#ve-llm");
+  skipBgCheckbox.addEventListener("change", () => {
+    llmTextarea.disabled = skipBgCheckbox.checked;
+    llmTextarea.style.opacity = skipBgCheckbox.checked ? "0.5" : "1";
+  });
+
   overlay.querySelector("#ve-save").addEventListener("click", async () => {
     const data = {
       name: overlay.querySelector("#ve-name").value.trim(),
@@ -320,6 +333,7 @@ function openVariantEditor(variant) {
       ddim_steps: parseInt(overlay.querySelector("#ve-steps").value) || 20,
       scale: parseFloat(overlay.querySelector("#ve-scale").value) || 9,
       image_resolution: overlay.querySelector("#ve-res").value.trim() || "512",
+      skip_background: overlay.querySelector("#ve-skip-bg").checked,
     };
 
     if (!data.name) { alert("Name is required"); return; }
@@ -432,6 +446,7 @@ async function runEval() {
             image: imageDataUrl,
             blip_question: variant.blip_question,
             llm_enrichment: variant.llm_enrichment,
+            skip_background: variant.skip_background || false,
           }),
         });
         const desc = await descRes.json();

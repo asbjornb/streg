@@ -522,7 +522,7 @@ async function handleEvalRoutes(url, request, env, cors) {
 
   // --- Eval Describe (variant-aware) ---
   if (path === "/eval/describe" && method === "POST") {
-    const { image, blip_question, llm_enrichment } = await request.json();
+    const { image, blip_question, llm_enrichment, skip_background } = await request.json();
     if (!image) return jsonResponse({ error: "Need image" }, 400, cors);
 
     try {
@@ -530,10 +530,15 @@ async function handleEvalRoutes(url, request, env, cors) {
       if (!caption) return jsonResponse({ error: "Empty caption", step: "describe" }, 502, cors);
 
       let enrichedPrompt;
-      try {
-        enrichedPrompt = await callLlmEnrich(env, caption, llm_enrichment);
-      } catch (e) {
+      if (skip_background) {
+        // Skip LLM enrichment — use the raw BLIP caption directly
         enrichedPrompt = caption;
+      } else {
+        try {
+          enrichedPrompt = await callLlmEnrich(env, caption, llm_enrichment);
+        } catch (e) {
+          enrichedPrompt = caption;
+        }
       }
 
       return jsonResponse({ caption, prompt: enrichedPrompt }, 200, cors);
