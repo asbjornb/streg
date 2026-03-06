@@ -83,4 +83,25 @@ describe("cleanCaption", () => {
   it("handles empty string", () => {
     expect(cleanCaption("")).toBe("");
   });
+
+  // Deduplication of repeated items
+  it("deduplicates 'fish, fish, fish'", () => {
+    expect(cleanCaption("fish, fish, fish")).toBe("fish");
+  });
+
+  it("deduplicates 'fish, fish, fish , fish, fish, fish , fish'", () => {
+    expect(cleanCaption("fish, fish, fish , fish, fish, fish , fish")).toBe("fish");
+  });
+
+  it("deduplicates case-insensitively", () => {
+    expect(cleanCaption("Cat, cat, CAT")).toBe("Cat");
+  });
+
+  it("keeps distinct items", () => {
+    expect(cleanCaption("cat, dog, fish")).toBe("cat, dog, fish");
+  });
+
+  it("deduplicates mixed repeated items", () => {
+    expect(cleanCaption("cat, dog, cat, dog")).toBe("cat, dog");
+  });
 });

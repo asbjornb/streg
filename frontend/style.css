@@ -537,6 +537,9 @@ header h1 {
   font-size: 0.8rem;
   color: var(--text-muted);
   margin-top: 4px;
+  -webkit-user-select: text;
+  user-select: text;
+  cursor: text;
 }
 
 .eval-variant-params {
@@ -544,6 +547,9 @@ header h1 {
   color: var(--text-muted);
   margin-top: 2px;
   font-family: monospace;
+  -webkit-user-select: text;
+  user-select: text;
+  cursor: text;
 }
 
 /* -- Modal -- */
@@ -686,12 +692,17 @@ header h1 {
   color: var(--text-muted);
   word-break: break-word;
   margin-bottom: 2px;
+  -webkit-user-select: text;
+  user-select: text;
+  cursor: text;
 }
 
 .eval-cell-status {
   font-size: 0.8rem;
   color: var(--text-muted);
   margin-bottom: 4px;
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 .eval-cell-error .eval-cell-status {
