@@ -71,7 +71,15 @@ export function cleanCaption(raw) {
   );
   text = text.replace(midRe, " ");
 
-  // 9. Clean up whitespace and dangling punctuation
+  // 9. Strip any remaining colorless-style phrases anywhere in the sentence.
+  //    e.g. "a cat in black and white with a red ball" -> "a cat with a red ball"
+  const colorAdjAnywhereRe = new RegExp(`\\b(${COLOR_ADJECTIVES})\\b`, "gi");
+  text = text.replace(colorAdjAnywhereRe, "");
+
+  // 10. Fix dangling preposition left by removing style phrases.
+  text = text.replace(/\bin\s+with\b/gi, "with");
+
+  // 11. Clean up whitespace and dangling punctuation
   text = text.replace(/^[\s,.:;]+|[\s,.:;]+$/g, "").replace(/\s{2,}/g, " ");
 
   return text;

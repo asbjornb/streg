@@ -91,6 +91,14 @@ describe("cleanCaption", () => {
     expect(cleanCaption("a cat, black and white drawing, on a mat")).toBe("a cat on a mat");
   });
 
+  it("strips mid-sentence 'black and white' phrases", () => {
+    expect(cleanCaption("a cat in black and white with a red ball")).toBe("a cat with a red ball");
+  });
+
+  it("strips standalone monochrome words in a sentence", () => {
+    expect(cleanCaption("a rainbow over monochrome mountains")).toBe("a rainbow over mountains");
+  });
+
   // "Caption:" / "Answer:" prefix
   it("strips 'Answer:' prefix", () => {
     expect(cleanCaption("Answer: a black and white drawing of a cat")).toBe("a cat");
