@@ -2,96 +2,41 @@
 // Proxies drawing requests to Replicate's ControlNet Scribble model
 // with simple PIN-based family auth.
 
-// Medium/style words that BLIP uses to describe the drawing itself rather than the subject.
-// These leak into the generation prompt and force unwanted styles (e.g. monochrome output).
-const MEDIUM_NOUNS = "drawing|sketch|doodle|scribble|picture|illustration|image|artwork|painting|cartoon|outline|diagram|depiction|rendition|rendering";
-const MEDIUM_ADJECTIVES = "black\\s+and\\s+white|monochrome|grayscale|grey|gray|simple|hand[- ]?drawn|hand[- ]?sketched|rough|crude|basic|pencil|ink|pen|charcoal|crayon|chalk|line|stick\\s+figure|childish|child's|children's|kid's";
-
-// Subset of MEDIUM_ADJECTIVES that describe the scribble's colorlessness rather than the subject.
-// These are stripped even when not followed by a medium noun (e.g. "a black and white house").
-const COLOR_ADJECTIVES = "black\\s+and\\s+white|monochrome|grayscale|grey|gray";
+// Words BLIP uses to describe the drawing medium rather than the subject.
+const MEDIUM_NOUNS = /\b(drawing|sketch|doodle|scribble|picture|illustration|image|artwork|painting|cartoon|outline|diagram|depiction|rendition|rendering)\b/gi;
+const MEDIUM_STYLE_WORDS = /\b(simple|hand-?drawn|hand-?sketched|rough|crude|basic|pencil|ink|pen|charcoal|crayon|chalk|stick\s+figure|childish|child's|children's|kid's)\b/gi;
+const COLOR_WORDS = /\bblack\s*[&-]?\s*and\s*[&-]?\s*white\b|\bblack\s*&\s*white\b|\bb\s*&\s*w\b|\bmonochrome\b|\bgrayscale\b|\bgrey\b|\bgray\b|\bblack\b|\bwhite\b/gi;
 
 /**
  * Strip medium/style phrases that describe the scribble rather than the subject.
  * BLIP often says things like "a black and white drawing of a cat" — we want just "a cat".
+ * The LLM enrichment step downstream cleans up any grammar issues.
  */
 export function cleanCaption(raw) {
   let text = raw;
 
-  // 1. Strip "Caption:" / "Answer:" / "Objects:" prefix
+  // 1. Strip common prefixes: "Caption:", "Answer:", "Objects:", preambles
   text = text.replace(/^(Caption|Answer|Objects?):\s*/i, "");
-
-  // 2. Strip leading preamble: "this is|there is|it is|it looks like" etc.
-  //    Also handles VQA-style preambles like "the main object(s) is/are"
   text = text.replace(/^(this|there|it)\s+(is|are|looks like|appears to be|seems to be)\s+/i, "");
   text = text.replace(/^the\s+main\s+(objects?|things?|items?)\s+(is|are)\s+/i, "");
 
-  // 3. Strip leading article + optional medium adjectives + medium noun + "of"
-  //    e.g. "a black and white drawing of" / "an ink sketch of" / "a simple doodle of"
-  const mediumPrefixRe = new RegExp(
-    `^(a|an|the)\\s+((${MEDIUM_ADJECTIVES})\\s+)*(${MEDIUM_NOUNS})\\s+(of\\s+)?`,
-    "i"
-  );
-  text = text.replace(mediumPrefixRe, "");
-
-  // 4. Also without a leading article: "black and white drawing of a cat"
-  const noArticlePrefixRe = new RegExp(
-    `^((${MEDIUM_ADJECTIVES})\\s+)+(${MEDIUM_NOUNS})\\s+(of\\s+)?`,
-    "i"
-  );
-  text = text.replace(noArticlePrefixRe, "");
-
-  // 5. Strip standalone color adjectives that describe the medium, not the subject.
-  //    e.g. "a black and white house" -> "a house"
-  const colorAdjLeadRe = new RegExp(
-    `^(a|an|the)\\s+(${COLOR_ADJECTIVES})\\s+`,
-    "i"
-  );
-  text = text.replace(colorAdjLeadRe, "$1 ");
-  // Without article: "black and white house" -> "house"
-  const colorAdjBareRe = new RegExp(
-    `^(${COLOR_ADJECTIVES})\\s+`,
-    "i"
-  );
-  text = text.replace(colorAdjBareRe, "");
-
-  // 6. Strip ", drawn/sketched/rendered in ..." suffixes
+  // 2. Strip "drawn/sketched/rendered in ..." suffixes
   text = text.replace(/[,.]?\s+(drawn|sketched|rendered|depicted|shown)\s+(in|on|with)\s+.*$/i, "");
 
-  // 7. Strip trailing "that is/which is + color adjective"
-  //    e.g. "a boat that is black and white" -> "a boat"
-  //    Must run before the general trailing strip so "that is" doesn't dangle.
-  const trailingThatIsRe = new RegExp(
-    `\\s+(that|which)\\s+(is|are)\\s+(${COLOR_ADJECTIVES})\\s*$`,
-    "i"
-  );
-  text = text.replace(trailingThatIsRe, "");
+  // 3. Strip medium nouns, style words, and color words
+  text = text.replace(MEDIUM_NOUNS, "");
+  text = text.replace(MEDIUM_STYLE_WORDS, "");
+  text = text.replace(COLOR_WORDS, "");
 
-  // 8. Strip trailing medium phrases: "..., in black and white"
-  const trailingRe = new RegExp(
-    `[,.]?\\s+(in\\s+)?(${MEDIUM_ADJECTIVES})\\s*$`,
-    "i"
-  );
-  text = text.replace(trailingRe, "");
+  // 4. Strip dangling "of" before an article: "... of a cat" -> "a cat"
+  text = text.replace(/\bof\s+(?=(a|an|the)\b)/gi, "");
 
-  // 9. Strip standalone medium phrases that might remain mid-sentence
-  //    e.g. "a cat, black and white drawing" -> "a cat"
-  const midRe = new RegExp(
-    `[,.]?\\s*(${MEDIUM_ADJECTIVES})\\s+(${MEDIUM_NOUNS})\\s*[,.]?`,
-    "gi"
-  );
-  text = text.replace(midRe, " ");
+  // 5. Strip leading dangling article (when everything after it was removed)
+  //    e.g. "a   a cat" -> "a cat", "an  a tree" -> "a tree"
+  text = text.replace(/\s{2,}/g, " ");
+  text = text.replace(/^(a|an|the)\s+(a|an|the)\b/i, "$2");
 
-  // 10. Brute-force strip any remaining color words that describe the medium.
-  //     The LLM enrichment step will clean up any grammar issues.
-  text = text.replace(/\bblack\s+and\s+white\b/gi, "");
-  text = text.replace(/\bblack[-&]and[-&]white\b/gi, "");
-  text = text.replace(/\bblack\s*&\s*white\b/gi, "");
-  text = text.replace(/\bb\s*&\s*w\b/gi, "");
-  text = text.replace(/\bmonochrome\b/gi, "");
-  text = text.replace(/\bgrayscale\b/gi, "");
-
-  // 11. Clean up whitespace and dangling punctuation
+  // 6. Clean up whitespace and dangling punctuation
   text = text.replace(/^[\s,.:;]+|[\s,.:;]+$/g, "").replace(/\s{2,}/g, " ");
 
   return text;
