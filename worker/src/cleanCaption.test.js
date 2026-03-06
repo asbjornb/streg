@@ -131,4 +131,34 @@ describe("cleanCaption", () => {
   it("strips 'a grayscale sketch of'", () => {
     expect(cleanCaption("a grayscale sketch of a bird")).toBe("a bird");
   });
+
+  // VQA preambles (BLIP-2 responses to "What are the main objects?")
+  it("strips 'the main objects are' preamble", () => {
+    expect(cleanCaption("the main objects are a black and white boat")).toBe("a boat");
+  });
+
+  it("strips 'the main object is' preamble", () => {
+    expect(cleanCaption("the main object is a black and white boat")).toBe("a boat");
+  });
+
+  it("strips 'there are' preamble", () => {
+    expect(cleanCaption("there are a black and white boat")).toBe("a boat");
+  });
+
+  it("strips 'Objects:' prefix", () => {
+    expect(cleanCaption("Objects: a black and white boat")).toBe("a boat");
+  });
+
+  it("strips 'Object:' prefix", () => {
+    expect(cleanCaption("Object: a cat")).toBe("a cat");
+  });
+
+  // Trailing "that is/which is" + color adjective
+  it("strips trailing 'that is black and white'", () => {
+    expect(cleanCaption("a boat that is black and white")).toBe("a boat");
+  });
+
+  it("strips trailing 'which is monochrome'", () => {
+    expect(cleanCaption("a boat which is monochrome")).toBe("a boat");
+  });
 });

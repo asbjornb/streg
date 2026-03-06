@@ -18,11 +18,13 @@ const COLOR_ADJECTIVES = "black\\s+and\\s+white|monochrome|grayscale|grey|gray";
 export function cleanCaption(raw) {
   let text = raw;
 
-  // 1. Strip "Caption:" / "Answer:" prefix
-  text = text.replace(/^(Caption|Answer):\s*/i, "");
+  // 1. Strip "Caption:" / "Answer:" / "Objects:" prefix
+  text = text.replace(/^(Caption|Answer|Objects?):\s*/i, "");
 
   // 2. Strip leading preamble: "this is|there is|it is|it looks like" etc.
-  text = text.replace(/^(this|there|it)\s+(is|looks like|appears to be|seems to be)\s+/i, "");
+  //    Also handles VQA-style preambles like "the main object(s) is/are"
+  text = text.replace(/^(this|there|it)\s+(is|are|looks like|appears to be|seems to be)\s+/i, "");
+  text = text.replace(/^the\s+main\s+(objects?|things?|items?)\s+(is|are)\s+/i, "");
 
   // 3. Strip leading article + optional medium adjectives + medium noun + "of"
   //    e.g. "a black and white drawing of" / "an ink sketch of" / "a simple doodle of"
@@ -56,14 +58,23 @@ export function cleanCaption(raw) {
   // 6. Strip ", drawn/sketched/rendered in ..." suffixes
   text = text.replace(/[,.]?\s+(drawn|sketched|rendered|depicted|shown)\s+(in|on|with)\s+.*$/i, "");
 
-  // 7. Strip trailing medium phrases: "..., in black and white"
+  // 7. Strip trailing "that is/which is + color adjective"
+  //    e.g. "a boat that is black and white" -> "a boat"
+  //    Must run before the general trailing strip so "that is" doesn't dangle.
+  const trailingThatIsRe = new RegExp(
+    `\\s+(that|which)\\s+(is|are)\\s+(${COLOR_ADJECTIVES})\\s*$`,
+    "i"
+  );
+  text = text.replace(trailingThatIsRe, "");
+
+  // 8. Strip trailing medium phrases: "..., in black and white"
   const trailingRe = new RegExp(
     `[,.]?\\s+(in\\s+)?(${MEDIUM_ADJECTIVES})\\s*$`,
     "i"
   );
   text = text.replace(trailingRe, "");
 
-  // 8. Strip standalone medium phrases that might remain mid-sentence
+  // 9. Strip standalone medium phrases that might remain mid-sentence
   //    e.g. "a cat, black and white drawing" -> "a cat"
   const midRe = new RegExp(
     `[,.]?\\s*(${MEDIUM_ADJECTIVES})\\s+(${MEDIUM_NOUNS})\\s*[,.]?`,
@@ -71,7 +82,7 @@ export function cleanCaption(raw) {
   );
   text = text.replace(midRe, " ");
 
-  // 9. Clean up whitespace and dangling punctuation
+  // 10. Clean up whitespace and dangling punctuation
   text = text.replace(/^[\s,.:;]+|[\s,.:;]+$/g, "").replace(/\s{2,}/g, " ");
 
   return text;
