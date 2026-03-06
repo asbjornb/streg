@@ -161,4 +161,21 @@ describe("cleanCaption", () => {
   it("strips trailing 'which is monochrome'", () => {
     expect(cleanCaption("a boat which is monochrome")).toBe("a boat");
   });
+
+  // Brute-force color word removal (catches anything the targeted regexes miss)
+  it("strips 'black and white' from arbitrary position", () => {
+    expect(cleanCaption("I see a black and white boat on the water")).toBe("I see a boat on the water");
+  });
+
+  it("strips 'b&w' shorthand", () => {
+    expect(cleanCaption("a b&w cat")).toBe("a cat");
+  });
+
+  it("strips 'black & white' with ampersand", () => {
+    expect(cleanCaption("A black & white boat")).toBe("A boat");
+  });
+
+  it("strips 'monochrome' from arbitrary position", () => {
+    expect(cleanCaption("a monochrome boat on a lake")).toBe("a boat on a lake");
+  });
 });

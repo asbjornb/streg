@@ -82,7 +82,16 @@ export function cleanCaption(raw) {
   );
   text = text.replace(midRe, " ");
 
-  // 10. Clean up whitespace and dangling punctuation
+  // 10. Brute-force strip any remaining color words that describe the medium.
+  //     The LLM enrichment step will clean up any grammar issues.
+  text = text.replace(/\bblack\s+and\s+white\b/gi, "");
+  text = text.replace(/\bblack[-&]and[-&]white\b/gi, "");
+  text = text.replace(/\bblack\s*&\s*white\b/gi, "");
+  text = text.replace(/\bb\s*&\s*w\b/gi, "");
+  text = text.replace(/\bmonochrome\b/gi, "");
+  text = text.replace(/\bgrayscale\b/gi, "");
+
+  // 11. Clean up whitespace and dangling punctuation
   text = text.replace(/^[\s,.:;]+|[\s,.:;]+$/g, "").replace(/\s{2,}/g, " ");
 
   return text;
