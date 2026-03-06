@@ -30,6 +30,7 @@ function init() {
   canvas = document.getElementById("drawing-canvas");
   ctx = canvas.getContext("2d");
 
+  updateMobileLayoutState();
   setupCanvas();
   setupPalette();
   setupToolbar();
@@ -41,6 +42,7 @@ function init() {
   loadHistory();
 
   window.addEventListener("resize", handleResize);
+  window.addEventListener("orientationchange", handleResize);
 
   // If already authed, skip PIN
   const saved = sessionStorage.getItem("streg_token");
@@ -51,15 +53,35 @@ function init() {
 }
 
 // === Canvas sizing ===
+function isMobileViewport() {
+  return window.matchMedia("(max-width: 600px)").matches;
+}
+
+function isLandscapeViewport() {
+  return window.matchMedia("(orientation: landscape)").matches;
+}
+
+function shouldForceLandscapeCanvas() {
+  return isMobileViewport() && isLandscapeViewport();
+}
+
+function updateMobileLayoutState() {
+  document.body.classList.toggle("mobile-force-landscape", shouldForceLandscapeCanvas());
+}
+
 function setupCanvas() {
   const area = document.querySelector(".canvas-area");
-  const w = area.clientWidth;
-  const isMobile = window.innerWidth <= 600;
-  // On mobile: use most of the viewport height for drawing
+  const forceLandscape = shouldForceLandscapeCanvas();
+  const w = forceLandscape ? window.innerWidth : area.clientWidth;
+  // On landscape mobile: fill viewport for max drawing area
+  // On portrait mobile: use most of the viewport height for drawing
   // On desktop: keep the original 3:4 / 50vh cap
-  const h = isMobile
-    ? Math.min(w, window.innerHeight * 0.7)
-    : Math.min(w * 0.75, window.innerHeight * 0.5);
+  const h = forceLandscape
+    ? window.innerHeight
+    : (isMobileViewport()
+      ? Math.min(w, window.innerHeight * 0.7)
+      : Math.min(w * 0.75, window.innerHeight * 0.5));
+
   canvas.width = w;
   canvas.height = h;
   ctx.fillStyle = "#ffffff";
@@ -69,6 +91,7 @@ function setupCanvas() {
 }
 
 function handleResize() {
+  updateMobileLayoutState();
   // Save current drawing, resize, restore
   const data = canvas.toDataURL();
   const oldW = canvas.width;

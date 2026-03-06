@@ -46,6 +46,31 @@ function createEnv() {
   win.alert = (...args) => alertCalls.push(args);
   win.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) });
 
+  // Basic matchMedia polyfill for responsive logic
+  win.matchMedia = (query) => {
+    const isMaxWidth = /max-width:\s*(\d+)px/.exec(query);
+    const isOrientation = /orientation:\s*(landscape|portrait)/.exec(query);
+    let matches = false;
+    if (isMaxWidth) {
+      matches = win.innerWidth <= Number(isMaxWidth[1]);
+    }
+    if (isOrientation) {
+      const orientationMatch = isOrientation[1] === "landscape"
+        ? win.innerWidth >= win.innerHeight
+        : win.innerHeight > win.innerWidth;
+      matches = isMaxWidth ? (matches && orientationMatch) : orientationMatch;
+    }
+    return {
+      matches,
+      media: query,
+      addListener: () => {},
+      removeListener: () => {},
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      dispatchEvent: () => false,
+    };
+  };
+
   // jsdom doesn't implement canvas — provide a stub
   const canvasEl = doc.getElementById("drawing-canvas");
   let pixelData = null;
@@ -171,5 +196,18 @@ describe("photo upload", () => {
 
     expect(photoInput).toBeTruthy();
     expect(photoInput.getAttribute("accept")).toBe("image/*");
+  });
+});
+
+
+describe("mobile landscape canvas mode", () => {
+  it("adds mobile-force-landscape class when viewport is mobile landscape", () => {
+    const env = createEnv();
+    Object.defineProperty(env.win, "innerWidth", { value: 568, configurable: true });
+    Object.defineProperty(env.win, "innerHeight", { value: 320, configurable: true });
+
+    env.win.dispatchEvent(new env.win.Event("resize"));
+
+    expect(env.doc.body.classList.contains("mobile-force-landscape")).toBe(true);
   });
 });
