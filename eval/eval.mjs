@@ -158,13 +158,14 @@ async function describeImage(imageDataUrl, variant) {
     ? blipPrediction.output
     : (blipPrediction.output || "").toString()
   ).trim();
-  const rawCaption = cleanCaption(blipOutput);
-  console.log(`    BLIP caption: "${rawCaption}"`);
+  const cleaned = cleanCaption(blipOutput);
+  console.log(`    BLIP raw: "${blipOutput}"`);
+  console.log(`    BLIP cleaned: "${cleaned}"`);
 
-  if (!rawCaption) return "a colorful children's drawing";
+  if (!cleaned) return { caption: blipOutput, cleanedCaption: "", prompt: "a colorful children's drawing" };
 
   // Step 2: LLM enrichment
-  const llmPrompt = variant.llm_enrichment.replace("{{caption}}", rawCaption);
+  const llmPrompt = variant.llm_enrichment.replace("{{caption}}", cleaned);
   console.log("    LLM enriching...");
 
   try {
@@ -179,13 +180,13 @@ async function describeImage(imageDataUrl, variant) {
         : llmPrediction.output;
       const enriched = text.trim().replace(/^["']|["']$/g, "");
       console.log(`    Enriched: "${enriched}"`);
-      return enriched || rawCaption;
+      return { caption: blipOutput, cleanedCaption: cleaned, prompt: enriched || cleaned };
     }
   } catch (e) {
-    console.log(`    LLM enrichment failed, using raw caption: ${e.message}`);
+    console.log(`    LLM enrichment failed, using cleaned caption: ${e.message}`);
   }
 
-  return rawCaption;
+  return { caption: blipOutput, cleanedCaption: cleaned, prompt: cleaned };
 }
 
 // --- Main ---
@@ -210,12 +211,17 @@ async function main() {
       console.log(`\n[${imageName}] x [${variantName}]`);
 
       // Determine prompt
-      let prompt;
+      let prompt, caption, cleanedCaption;
       if (manualPrompt) {
         prompt = manualPrompt;
+        caption = "";
+        cleanedCaption = "";
         console.log(`  Using manual prompt: "${prompt}"`);
       } else {
-        prompt = await describeImage(imageDataUrl, variant);
+        const desc = await describeImage(imageDataUrl, variant);
+        prompt = desc.prompt;
+        caption = desc.caption;
+        cleanedCaption = desc.cleanedCaption;
       }
 
       // Generate with ControlNet
@@ -248,6 +254,8 @@ async function main() {
       console.log(`  Saved: ${outputFilename}`);
 
       results[imageName][variantName] = {
+        caption,
+        cleanedCaption,
         prompt,
         outputFile: outputFilename,
         inputFile: `${imageName}_input.png`,
@@ -273,7 +281,9 @@ function generateHTML(results) {
       if (!r) return "<td>—</td>";
       return `<td>
         <img src="${r.outputFile}" alt="${vn}" loading="lazy">
-        <div class="prompt">${escapeHtml(r.prompt)}</div>
+        ${r.caption ? `<div class="caption"><b>Caption:</b> ${escapeHtml(r.caption)}</div>` : ""}
+        ${r.cleanedCaption ? `<div class="caption"><b>Cleaned:</b> ${escapeHtml(r.cleanedCaption)}</div>` : ""}
+        <div class="prompt"><b>Prompt:</b> ${escapeHtml(r.prompt)}</div>
         <div class="params">steps=${r.variant.ddim_steps} scale=${r.variant.scale}</div>
       </td>`;
     }).join("\n");
@@ -308,6 +318,7 @@ function generateHTML(results) {
   th { background: #fafafa; font-size: 0.85rem; }
   td img { max-width: 100%; border-radius: 4px; }
   .input-cell { background: #fff9f0; min-width: 150px; }
+  .caption { font-size: 0.75rem; color: #777; margin-top: 4px; word-break: break-word; }
   .prompt { font-size: 0.75rem; color: #555; margin-top: 4px; word-break: break-word; }
   .params { font-size: 0.7rem; color: #999; margin-top: 2px; }
   .label { font-weight: 600; font-size: 0.8rem; margin-top: 4px; }

@@ -687,6 +687,7 @@ header h1 {
 }
 
 .eval-cell-caption,
+.eval-cell-cleaned,
 .eval-cell-prompt {
   font-size: 0.75rem;
   color: var(--text-muted);
