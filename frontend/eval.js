@@ -134,7 +134,7 @@ function setupImageUpload() {
 function renderImages() {
   const grid = document.getElementById("image-grid");
   if (testImages.length === 0) {
-    grid.innerHTML = '<p class="eval-empty">No test images yet. Draw in the <a href="/">main app</a> and use "Save to test suite", or upload a PNG here.</p>';
+    grid.innerHTML = '<p class="eval-empty">No test images yet. Draw in the <a href="/">main app</a>, download as PNG, and upload here.</p>';
     return;
   }
 
