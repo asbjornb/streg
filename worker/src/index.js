@@ -180,7 +180,7 @@ async function callBlip(env, image, question) {
   }
 
   const output = (typeof prediction.output === "string" ? prediction.output : (prediction.output || "").toString()).trim();
-  return cleanCaption(output);
+  return output;
 }
 
 async function callLlmEnrich(env, caption, template) {
@@ -258,10 +258,11 @@ async function handleDescribe(request, env, cors) {
   }
 
   try {
-    const rawCaption = await callBlip(env, image);
-    if (!rawCaption) {
+    const blipOutput = await callBlip(env, image);
+    if (!blipOutput) {
       return jsonResponse({ error: "AI returned empty caption", step: "describe" }, 502, cors);
     }
+    const rawCaption = cleanCaption(blipOutput);
 
     const llmPrompt = DEFAULT_LLM_ENRICHMENT.replace("{{caption}}", rawCaption);
     let enrichedPrompt;
@@ -491,22 +492,23 @@ async function handleEvalRoutes(url, request, env, cors) {
     if (!image) return jsonResponse({ error: "Need image" }, 400, cors);
 
     try {
-      const caption = await callBlip(env, image, blip_question);
-      if (!caption) return jsonResponse({ error: "Empty caption", step: "describe" }, 502, cors);
+      const rawCaption = await callBlip(env, image, blip_question);
+      if (!rawCaption) return jsonResponse({ error: "Empty caption", step: "describe" }, 502, cors);
+      const cleanedCaption = cleanCaption(rawCaption);
 
       let enrichedPrompt;
       if (skip_background) {
-        // Skip LLM enrichment — use the raw BLIP caption directly
-        enrichedPrompt = caption;
+        // Skip LLM enrichment — use the cleaned caption directly
+        enrichedPrompt = cleanedCaption;
       } else {
         try {
-          enrichedPrompt = await callLlmEnrich(env, caption, llm_enrichment);
+          enrichedPrompt = await callLlmEnrich(env, cleanedCaption, llm_enrichment);
         } catch (e) {
-          enrichedPrompt = caption;
+          enrichedPrompt = cleanedCaption;
         }
       }
 
-      return jsonResponse({ caption, prompt: enrichedPrompt }, 200, cors);
+      return jsonResponse({ caption: rawCaption, cleanedCaption, prompt: enrichedPrompt }, 200, cors);
     } catch (e) {
       return jsonResponse({ error: "AI service error", step: "describe", detail: e?.message }, 502, cors);
     }

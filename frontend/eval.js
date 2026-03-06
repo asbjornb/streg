@@ -458,7 +458,7 @@ async function runEval() {
         const desc = await descRes.json();
         if (desc.error) throw new Error(desc.detail || desc.error);
 
-        results[cellKey] = { ...results[cellKey], caption: desc.caption, prompt: desc.prompt, status: "generating" };
+        results[cellKey] = { ...results[cellKey], caption: desc.caption, cleanedCaption: desc.cleanedCaption, prompt: desc.prompt, status: "generating" };
         renderResultsGrid();
 
         // Step 2: Generate
@@ -485,6 +485,7 @@ async function runEval() {
         results[cellKey] = {
           imageId, variantId,
           caption: desc.caption,
+          cleanedCaption: desc.cleanedCaption,
           prompt: desc.prompt,
           outputImageUrl: outputUrl,
           status: "done",
@@ -664,6 +665,7 @@ function renderCell(r, variant, imageId, variantId) {
         <div class="eval-cell-spinner"></div>
         <div class="eval-cell-status">${r.status === "generating" ? "Generating..." : "Describing..."}</div>
         ${r.caption ? `<div class="eval-cell-caption">Caption: ${esc(r.caption)}</div>` : ""}
+        ${r.cleanedCaption ? `<div class="eval-cell-cleaned">Cleaned: ${esc(r.cleanedCaption)}</div>` : ""}
         ${r.prompt ? `<div class="eval-cell-prompt">Prompt: ${esc(r.prompt)}</div>` : ""}
       </div>
     `;
@@ -685,6 +687,7 @@ function renderCell(r, variant, imageId, variantId) {
       <div class="eval-cell-variant">${esc(variant.name)}</div>
       ${r.outputImageUrl ? `<img src="${esc(r.outputImageUrl)}" alt="result" loading="lazy">` : ""}
       <div class="eval-cell-caption">Caption: ${esc(r.caption || "—")}</div>
+      <div class="eval-cell-cleaned">Cleaned: ${esc(r.cleanedCaption || "—")}</div>
       <div class="eval-cell-prompt">Prompt: ${esc(r.prompt || "—")}</div>
       <button class="btn btn-tool btn-sm" data-rerun="${key}">Re-run</button>
     </div>
