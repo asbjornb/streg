@@ -200,6 +200,11 @@ header h1 {
   border-color: var(--text);
 }
 
+
+.mobile-rotate-notice {
+  display: none;
+}
+
 /* === Canvas Wrapper (holds canvas + mobile toggle buttons) === */
 .canvas-wrapper {
   position: relative;
@@ -759,6 +764,48 @@ header h1 {
     display: none;
   }
 
+  .mobile-rotate-notice {
+    display: block;
+    margin: 6px 0;
+    padding: 8px 10px;
+    border: 2px solid var(--border);
+    border-radius: var(--radius);
+    background: #fff9f0;
+    color: var(--text-muted);
+    font-size: 0.82rem;
+    text-align: center;
+  }
+
+  body.mobile-force-landscape #app {
+    padding: 0;
+    max-width: none;
+    min-height: 100dvh;
+  }
+
+  body.mobile-force-landscape header,
+  body.mobile-force-landscape .toolbar,
+  body.mobile-force-landscape .prompt-area,
+  body.mobile-force-landscape #prompt-info,
+  body.mobile-force-landscape #results-area,
+  body.mobile-force-landscape #history-area,
+  body.mobile-force-landscape .mobile-rotate-notice {
+    display: none !important;
+  }
+
+  body.mobile-force-landscape .canvas-wrapper {
+    height: 100dvh;
+  }
+
+  body.mobile-force-landscape .canvas-area {
+    border-radius: 0;
+    box-shadow: none;
+  }
+
+  body.mobile-force-landscape #drawing-canvas {
+    height: 100dvh;
+    width: 100vw;
+  }
+
   /* -- Collapsible toolbar -- */
   .toolbar {
     gap: 10px;
@@ -825,5 +872,11 @@ header h1 {
   /* Canvas gets no border-radius on sides when toggle buttons present */
   .canvas-wrapper .canvas-area {
     border-radius: 0;
+  }
+}
+
+@media (max-width: 600px) and (orientation: landscape) {
+  .mobile-rotate-notice {
+    display: none;
   }
 }
