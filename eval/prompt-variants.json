@@ -53,6 +53,7 @@
     },
     "anime_chibi": {
       "description": "Cute anime/chibi style — big eyes, bright colors",
+      "approach": "controlnet",
       "blip_question": "What is in this picture? Name only the subject, no style or medium words.",
       "llm_enrichment": "A child drew \"{{caption}}\". Write an image prompt (under 25 words): the subject in cute chibi anime style with big expressive eyes and a colorful simple background. Only output the prompt.",
       "a_prompt": "chibi, anime style, cute, big eyes, bright colors, clean lines, kawaii, colorful, detailed",
@@ -60,6 +61,18 @@
       "ddim_steps": 25,
       "scale": 8,
       "image_resolution": "512"
+    },
+    "flux_transform": {
+      "description": "FLUX Kontext — transforms drawing to photorealistic/3D render, preserving shape",
+      "approach": "flux-kontext",
+      "flux_prompt": "Take this drawing created by my child and transform it into a photorealistic image or realistic 3D render. I don't know what it's supposed to be — it could be a creature, object, or something completely from their imagination. Keep the original shape, proportions, line lengths, and all imperfections exactly as they are in the drawing — including any slanted eyes, uneven lines, or strange markings. Do not correct, smooth out, or change any details of their design.",
+      "blip_question": "",
+      "llm_enrichment": "",
+      "a_prompt": "",
+      "n_prompt": "",
+      "ddim_steps": 0,
+      "scale": 0,
+      "image_resolution": "1024"
     }
   }
 }

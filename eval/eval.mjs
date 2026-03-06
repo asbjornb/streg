@@ -31,6 +31,7 @@ if (!REPLICATE_API_TOKEN) {
 
 const CONTROLNET_VERSION = "435061a1b5a4c1e26740464bf786efdfa9cb3a3ac488595a2de23e143fdb0117";
 const BLIP_VERSION = "f677695e5e89f8b236e52ecd1d3f01beb44c34606419bcc19345e046d8f786f9";
+const FLUX_KONTEXT_MODEL = "black-forest-labs/flux-kontext-pro";
 
 // --- CLI args ---
 const args = process.argv.slice(2);
@@ -209,6 +210,7 @@ async function main() {
 
     for (const [variantName, variant] of variants) {
       console.log(`\n[${imageName}] x [${variantName}]`);
+      const isFlux = variant.approach === "flux-kontext";
 
       // Determine prompt
       let prompt, caption, cleanedCaption;
@@ -217,6 +219,11 @@ async function main() {
         caption = "";
         cleanedCaption = "";
         console.log(`  Using manual prompt: "${prompt}"`);
+      } else if (isFlux) {
+        prompt = variant.flux_prompt || "Transform this child's drawing into a photorealistic image, preserving all shapes and imperfections exactly.";
+        caption = "";
+        cleanedCaption = "";
+        console.log(`  Using FLUX prompt: "${prompt.slice(0, 80)}..."`);
       } else {
         const desc = await describeImage(imageDataUrl, variant);
         prompt = desc.prompt;
@@ -224,33 +231,56 @@ async function main() {
         cleanedCaption = desc.cleanedCaption;
       }
 
-      // Generate with ControlNet
-      console.log("  Generating with ControlNet...");
-      const prediction = await replicatePredict({
-        version: CONTROLNET_VERSION,
-        input: {
-          image: imageDataUrl,
-          prompt,
-          num_samples: "1",
-          image_resolution: variant.image_resolution || "512",
-          ddim_steps: variant.ddim_steps || 20,
-          scale: variant.scale || 9,
-          seed: 42, // fixed seed for comparison
-          eta: 0,
-          a_prompt: variant.a_prompt,
-          n_prompt: variant.n_prompt,
-        },
-      });
+      let prediction;
+      if (isFlux) {
+        // Generate with FLUX Kontext
+        console.log("  Generating with FLUX Kontext Pro...");
+        prediction = await replicatePredict({
+          model: FLUX_KONTEXT_MODEL,
+          input: {
+            input_image: imageDataUrl,
+            prompt,
+            seed: 42,
+            output_format: "png",
+          },
+        });
+      } else {
+        // Generate with ControlNet
+        console.log("  Generating with ControlNet...");
+        prediction = await replicatePredict({
+          version: CONTROLNET_VERSION,
+          input: {
+            image: imageDataUrl,
+            prompt,
+            num_samples: "1",
+            image_resolution: variant.image_resolution || "512",
+            ddim_steps: variant.ddim_steps || 20,
+            scale: variant.scale || 9,
+            seed: 42, // fixed seed for comparison
+            eta: 0,
+            a_prompt: variant.a_prompt,
+            n_prompt: variant.n_prompt,
+          },
+        });
+      }
 
       // Poll for result
       console.log("  Waiting for result...");
       const result = await pollPrediction(prediction.id);
-      const outputUrls = Array.isArray(result.output) ? result.output : [result.output];
+
+      // Extract output URL — FLUX returns single URL, ControlNet returns array
+      let outputUrl;
+      if (isFlux) {
+        outputUrl = typeof result.output === "string" ? result.output : (Array.isArray(result.output) ? result.output[0] : result.output);
+      } else {
+        const outputUrls = Array.isArray(result.output) ? result.output : [result.output];
+        outputUrl = outputUrls[0];
+      }
 
       // Download output image
       const outputFilename = `${imageName}_${variantName}.png`;
       const outputPath = path.join(outDir, outputFilename);
-      await downloadImage(outputUrls[0], outputPath);
+      await downloadImage(outputUrl, outputPath);
       console.log(`  Saved: ${outputFilename}`);
 
       results[imageName][variantName] = {
@@ -284,7 +314,7 @@ function generateHTML(results) {
         ${r.caption ? `<div class="caption"><b>Caption:</b> ${escapeHtml(r.caption)}</div>` : ""}
         ${r.cleanedCaption ? `<div class="caption"><b>Cleaned:</b> ${escapeHtml(r.cleanedCaption)}</div>` : ""}
         <div class="prompt"><b>Prompt:</b> ${escapeHtml(r.prompt)}</div>
-        <div class="params">steps=${r.variant.ddim_steps} scale=${r.variant.scale}</div>
+        <div class="params">${r.variant.approach === "flux-kontext" ? "FLUX Kontext" : `steps=${r.variant.ddim_steps} scale=${r.variant.scale}`}</div>
       </td>`;
     }).join("\n");
 
