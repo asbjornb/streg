@@ -479,7 +479,8 @@ async function runEval() {
 
         // Step 3: Poll
         const output = await pollPrediction(gen.id);
-        const outputUrl = Array.isArray(output) ? output[0] : output;
+        // ControlNet returns [control_image, generated_image] — we want the generated one
+        const outputUrl = Array.isArray(output) && output.length > 1 ? output[1] : (Array.isArray(output) ? output[0] : output);
 
         results[cellKey] = {
           imageId, variantId,
@@ -566,7 +567,8 @@ async function rerunCell(imageId, variantId) {
     if (gen.error) throw new Error(gen.detail || gen.error);
 
     const output = await pollPrediction(gen.id);
-    const outputUrl = Array.isArray(output) ? output[0] : output;
+    // ControlNet returns [control_image, generated_image] — we want the generated one
+    const outputUrl = Array.isArray(output) && output.length > 1 ? output[1] : (Array.isArray(output) ? output[0] : output);
 
     results[cellKey] = { imageId, variantId, caption: desc.caption, prompt: desc.prompt, outputImageUrl: outputUrl, status: "done" };
 
