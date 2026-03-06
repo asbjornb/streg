@@ -8,6 +8,25 @@ const MEDIUM_STYLE_WORDS = /\b(simple|hand-?drawn|hand-?sketched|rough|crude|bas
 const COLOR_WORDS = /\bblack\s*[&-]?\s*and\s*[&-]?\s*white\b|\bblack\s*&\s*white\b|\bb\s*&\s*w\b|\bmonochrome\b|\bgrayscale\b|\bgrey\b|\bgray\b|\bblack\b|\bwhite\b/gi;
 
 /**
+ * Deduplicate repeated comma-separated items.
+ * BLIP sometimes returns "fish, fish, fish, fish" — collapse to unique items.
+ */
+function deduplicateItems(text) {
+  if (!text.includes(",")) return text;
+  const parts = text.split(/\s*,\s*/);
+  const seen = new Set();
+  const unique = [];
+  for (const part of parts) {
+    const normalized = part.trim().toLowerCase();
+    if (normalized && !seen.has(normalized)) {
+      seen.add(normalized);
+      unique.push(part.trim());
+    }
+  }
+  return unique.join(", ");
+}
+
+/**
  * Strip medium/style phrases that describe the scribble rather than the subject.
  * BLIP often says things like "a black and white drawing of a cat" — we want just "a cat".
  * The LLM enrichment step downstream cleans up any grammar issues.
@@ -36,7 +55,10 @@ export function cleanCaption(raw) {
   text = text.replace(/\s{2,}/g, " ");
   text = text.replace(/^(a|an|the)\s+(a|an|the)\b/i, "$2");
 
-  // 6. Clean up whitespace and dangling punctuation
+  // 6. Deduplicate repeated comma-separated items ("fish, fish, fish" -> "fish")
+  text = deduplicateItems(text);
+
+  // 7. Clean up whitespace and dangling punctuation
   text = text.replace(/^[\s,.:;]+|[\s,.:;]+$/g, "").replace(/\s{2,}/g, " ");
 
   return text;
