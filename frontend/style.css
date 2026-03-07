@@ -347,6 +347,124 @@ header h1 {
   color: var(--text-muted);
 }
 
+/* === Gallery === */
+#gallery-area, #curate-area {
+  margin-top: 24px;
+}
+
+#gallery-area h2, #curate-area h2 {
+  font-size: 1.1rem;
+  margin-bottom: 4px;
+  color: var(--text-muted);
+}
+
+.gallery-subtitle {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  margin-bottom: 12px;
+}
+
+.gallery-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px;
+}
+
+.gallery-card {
+  background: var(--surface);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  border: 2px solid var(--border);
+  overflow: hidden;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.gallery-pair {
+  display: flex;
+  align-items: center;
+  gap: 0;
+}
+
+.gallery-pair img {
+  width: calc(50% - 12px);
+  aspect-ratio: 1;
+  object-fit: contain;
+  background: white;
+  display: block;
+}
+
+.gallery-arrow {
+  flex-shrink: 0;
+  width: 24px;
+  text-align: center;
+  font-size: 1.2rem;
+  color: var(--text-muted);
+}
+
+.gallery-prompt {
+  padding: 8px 12px;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  border-top: 1px solid var(--border);
+}
+
+/* Highlighted state during generation wait */
+#gallery-area.gallery-highlighted {
+  border: 2px solid var(--accent);
+  border-radius: var(--radius);
+  padding: 16px;
+  background: #fff9f0;
+}
+
+#gallery-area.gallery-highlighted h2::after {
+  content: " — while you wait...";
+  font-weight: 400;
+  font-size: 0.9rem;
+}
+
+/* Curation actions */
+.curate-actions {
+  display: flex;
+  gap: 8px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--border);
+}
+
+.btn-approve {
+  background: var(--primary);
+  color: white;
+  padding: 6px 14px;
+  font-size: 0.85rem;
+}
+
+.btn-approve:hover {
+  background: var(--primary-hover);
+}
+
+.btn-reject {
+  background: var(--surface);
+  color: #c44;
+  border: 2px solid #c44;
+  padding: 6px 14px;
+  font-size: 0.85rem;
+}
+
+.btn-reject:hover {
+  background: #fef2f2;
+}
+
+/* Hide gallery sections in mobile landscape */
+@media (max-width: 600px) {
+  body.mobile-force-landscape #gallery-area,
+  body.mobile-force-landscape #curate-area {
+    display: none !important;
+  }
+
+  .gallery-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* === Eval Mode === */
 .eval-tabs {
   display: flex;

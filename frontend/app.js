@@ -40,6 +40,7 @@ function init() {
   setupMobileToggles();
   restoreDraft();
   loadHistory();
+  loadGallery();
 
   window.addEventListener("resize", handleResize);
   window.addEventListener("orientationchange", handleResize);
@@ -446,6 +447,8 @@ function showDrawScreen() {
   // Re-measure canvas now that it's visible
   setupCanvas();
   restoreDraft();
+  // Load pending gallery items for curation
+  loadPendingGallery();
 }
 
 // === Submit to API ===
@@ -596,6 +599,9 @@ async function pollForResult(predictionId, prompt) {
   const btnLoading = btn.querySelector(".btn-loading");
   const maxAttempts = 60; // 2 minutes max
 
+  // Show gallery for inspiration while waiting
+  showGalleryDuringWait(true);
+
   for (let i = 0; i < maxAttempts; i++) {
     await sleep(2000);
     btnLoading.textContent = "Still working...";
@@ -607,10 +613,12 @@ async function pollForResult(predictionId, prompt) {
       const data = await res.json();
 
       if (data.status === "succeeded" && data.output) {
+        showGalleryDuringWait(false);
         showResult(data.output, prompt);
         btnLoading.textContent = "Working the magic...";
         return;
       } else if (data.status === "failed" || data.status === "canceled") {
+        showGalleryDuringWait(false);
         console.error("[poll] Generation prediction failed:", data.error);
         throw new Error("[poll] " + (data.error || "The magic didn't work this time. Try again!"));
       }
@@ -620,6 +628,7 @@ async function pollForResult(predictionId, prompt) {
       // network error, keep trying
     }
   }
+  showGalleryDuringWait(false);
   throw new Error("[poll] This is taking too long. Try again with a simpler drawing!");
 }
 
@@ -650,6 +659,9 @@ function showResult(output, prompt) {
 
   // Save to history
   saveToHistory(images, prompt);
+
+  // Save to gallery (fire-and-forget)
+  saveToGallery(images[0], prompt);
 }
 
 function escapeHtml(str) {
@@ -722,5 +734,152 @@ function loadHistory() {
     area.hidden = false;
   } catch (e) {
     // corrupt history, ignore
+  }
+}
+
+// === Gallery (shared showcase stored in Cloudflare KV) ===
+
+function saveToGallery(enhancedUrl, prompt) {
+  if (!WORKER_URL || !authToken) return;
+  const original = canvas.toDataURL("image/png");
+  fetch(WORKER_URL + "/gallery", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": "Bearer " + authToken,
+    },
+    body: JSON.stringify({ original, enhancedUrl, prompt }),
+  }).catch(e => console.warn("Gallery save failed:", e.message));
+}
+
+let galleryItems = [];
+
+async function loadGallery() {
+  if (!WORKER_URL) return;
+  try {
+    const res = await fetch(WORKER_URL + "/gallery");
+    if (!res.ok) return;
+    galleryItems = await res.json();
+    renderGallery();
+  } catch (e) {
+    // gallery unavailable, no big deal
+  }
+}
+
+function renderGallery() {
+  const area = document.getElementById("gallery-area");
+  const grid = document.getElementById("gallery-grid");
+  if (!area || !grid) return;
+
+  if (galleryItems.length === 0) {
+    area.hidden = true;
+    return;
+  }
+
+  grid.innerHTML = "";
+  galleryItems.forEach(item => {
+    const card = document.createElement("div");
+    card.className = "gallery-card";
+    card.innerHTML = `
+      <div class="gallery-pair">
+        <img src="${escapeHtml(item.originalThumb)}" alt="Original drawing" loading="lazy">
+        <span class="gallery-arrow">&rarr;</span>
+        <img src="${escapeHtml(item.enhancedThumb)}" alt="AI enhanced" loading="lazy">
+      </div>
+      <div class="gallery-prompt">${escapeHtml(item.prompt)}</div>
+    `;
+    grid.appendChild(card);
+  });
+
+  area.hidden = false;
+}
+
+function showGalleryDuringWait(show) {
+  const area = document.getElementById("gallery-area");
+  if (!area) return;
+  if (show && galleryItems.length > 0) {
+    area.classList.add("gallery-highlighted");
+    area.scrollIntoView({ behavior: "smooth" });
+  } else {
+    area.classList.remove("gallery-highlighted");
+  }
+}
+
+// === Gallery curation (for reviewing pending items) ===
+
+let pendingGalleryItems = [];
+
+async function loadPendingGallery() {
+  if (!WORKER_URL || !authToken) return;
+  try {
+    const res = await fetch(WORKER_URL + "/gallery/pending", {
+      headers: { "Authorization": "Bearer " + authToken },
+    });
+    if (!res.ok) return;
+    pendingGalleryItems = await res.json();
+    renderPendingGallery();
+  } catch (e) {
+    // ignore
+  }
+}
+
+function renderPendingGallery() {
+  const area = document.getElementById("curate-area");
+  const grid = document.getElementById("curate-grid");
+  if (!area || !grid) return;
+
+  if (pendingGalleryItems.length === 0) {
+    area.hidden = true;
+    return;
+  }
+
+  grid.innerHTML = "";
+  pendingGalleryItems.forEach(item => {
+    const card = document.createElement("div");
+    card.className = "gallery-card curate-card";
+    card.innerHTML = `
+      <div class="gallery-pair">
+        <img src="${escapeHtml(item.originalThumb)}" alt="Original drawing" loading="lazy">
+        <span class="gallery-arrow">&rarr;</span>
+        <img src="${escapeHtml(item.enhancedThumb)}" alt="AI enhanced" loading="lazy">
+      </div>
+      <div class="gallery-prompt">${escapeHtml(item.prompt)}</div>
+      <div class="curate-actions">
+        <button class="btn btn-sm btn-approve" data-id="${escapeHtml(item.id)}">Approve</button>
+        <button class="btn btn-sm btn-reject" data-id="${escapeHtml(item.id)}">Delete</button>
+      </div>
+    `;
+    grid.appendChild(card);
+  });
+
+  // Wire up approve/delete buttons
+  grid.querySelectorAll(".btn-approve").forEach(btn => {
+    btn.addEventListener("click", () => curateAction(btn.dataset.id, "approve"));
+  });
+  grid.querySelectorAll(".btn-reject").forEach(btn => {
+    btn.addEventListener("click", () => curateAction(btn.dataset.id, "delete"));
+  });
+
+  area.hidden = false;
+}
+
+async function curateAction(id, action) {
+  if (!WORKER_URL || !authToken) return;
+  try {
+    if (action === "approve") {
+      await fetch(WORKER_URL + "/gallery/" + id + "/approve", {
+        method: "POST",
+        headers: { "Authorization": "Bearer " + authToken },
+      });
+    } else {
+      await fetch(WORKER_URL + "/gallery/" + id, {
+        method: "DELETE",
+        headers: { "Authorization": "Bearer " + authToken },
+      });
+    }
+    // Refresh both lists
+    await Promise.all([loadPendingGallery(), loadGallery()]);
+  } catch (e) {
+    console.warn("Curate action failed:", e.message);
   }
 }

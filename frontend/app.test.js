@@ -28,6 +28,8 @@ const HTML = `<!DOCTYPE html><html><body>
   <button id="submit-btn"><span class="btn-text"></span><span class="btn-loading" hidden></span></button>
   <pre id="prompt-info" hidden></pre>
   <div id="results-area" hidden><div id="results-gallery"></div></div>
+  <div id="gallery-area" hidden><div id="gallery-grid"></div></div>
+  <div id="curate-area" hidden><div id="curate-grid"></div></div>
   <div id="history-area" hidden><div id="history-gallery"></div></div>
   <script>/* placeholder for debug.js */</script>
 </body></html>`;
@@ -126,6 +128,9 @@ function createEnv() {
 
   // Fire DOMContentLoaded to initialize the app
   doc.dispatchEvent(new win.Event("DOMContentLoaded"));
+
+  // Reset fetch spy after init (loadGallery fires during init)
+  win.fetch.mockClear();
 
   return {
     win,

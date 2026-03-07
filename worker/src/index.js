@@ -102,6 +102,10 @@ export default {
         return handleCosts(request, env, corsHeaders);
       }
 
+      if (url.pathname.startsWith("/gallery")) {
+        return handleGalleryRoutes(url, request, env, corsHeaders);
+      }
+
       if (url.pathname.startsWith("/eval/")) {
         return handleEvalRoutes(url, request, env, corsHeaders);
       }
@@ -411,6 +415,127 @@ async function handleStatus(request, env, cors, predictionId) {
     output: prediction.output,
     error: prediction.error,
   }, 200, cors);
+}
+
+// === Gallery: community showcase of drawings ===
+
+const GALLERY_PENDING_TTL = 3 * 24 * 3600; // 3 days in seconds
+
+async function handleGalleryRoutes(url, request, env, cors) {
+  if (!env.GALLERY) {
+    return jsonResponse({ error: "Gallery not configured" }, 501, cors);
+  }
+
+  const kv = env.GALLERY;
+  const path = url.pathname;
+  const method = request.method;
+
+  // GET /gallery — public, returns approved items (no auth needed)
+  if (path === "/gallery" && method === "GET") {
+    const list = await kv.list({ prefix: "approved:" });
+    const items = await Promise.all(
+      list.keys.map(k => kv.get(k.name, "json"))
+    );
+    // Return without the full image data for the listing — just thumbnails
+    return jsonResponse(items.filter(Boolean).map(item => ({
+      id: item.id,
+      prompt: item.prompt,
+      originalThumb: item.originalThumb,
+      enhancedThumb: item.enhancedThumb,
+      createdAt: item.createdAt,
+    })), 200, cors);
+  }
+
+  // Everything below requires auth
+  if (!(await verifyToken(request, env))) {
+    return jsonResponse({ error: "Not authorized" }, 401, cors);
+  }
+
+  // POST /gallery — save a new gallery item (auto-submitted after generation)
+  if (path === "/gallery" && method === "POST") {
+    const { original, enhancedUrl, prompt } = await request.json();
+    if (!original || !enhancedUrl) {
+      return jsonResponse({ error: "Need original and enhancedUrl" }, 400, cors);
+    }
+
+    // Fetch the enhanced image from Replicate (URLs expire)
+    let enhancedDataUrl;
+    try {
+      const imgRes = await fetch(enhancedUrl);
+      if (!imgRes.ok) throw new Error("Failed to fetch image: " + imgRes.status);
+      const buffer = await imgRes.arrayBuffer();
+      const base64 = btoa(String.fromCharCode(...new Uint8Array(buffer)));
+      const contentType = imgRes.headers.get("content-type") || "image/png";
+      enhancedDataUrl = `data:${contentType};base64,${base64}`;
+    } catch (e) {
+      console.error("Failed to fetch enhanced image:", e?.message);
+      return jsonResponse({ error: "Could not fetch enhanced image" }, 502, cors);
+    }
+
+    // Create thumbnails (store smaller versions for the gallery listing)
+    // Full images stored for detail view; thumbs are just the same for now
+    // (real thumbnail generation would need a canvas/worker, but base64 is fine for this scale)
+    const id = crypto.randomUUID();
+    const item = {
+      id,
+      original,
+      enhanced: enhancedDataUrl,
+      originalThumb: original,
+      enhancedThumb: enhancedDataUrl,
+      prompt: prompt || "",
+      createdAt: new Date().toISOString(),
+      approved: false,
+    };
+
+    // Store as pending with 3-day TTL
+    await kv.put(`pending:${id}`, JSON.stringify(item), { expirationTtl: GALLERY_PENDING_TTL });
+
+    return jsonResponse({ ok: true, id }, 201, cors);
+  }
+
+  // GET /gallery/pending — list pending items for curation
+  if (path === "/gallery/pending" && method === "GET") {
+    const list = await kv.list({ prefix: "pending:" });
+    const items = await Promise.all(
+      list.keys.map(k => kv.get(k.name, "json"))
+    );
+    return jsonResponse(items.filter(Boolean).map(item => ({
+      id: item.id,
+      prompt: item.prompt,
+      originalThumb: item.originalThumb,
+      enhancedThumb: item.enhancedThumb,
+      createdAt: item.createdAt,
+    })), 200, cors);
+  }
+
+  // POST /gallery/:id/approve — approve a pending item
+  const approveMatch = path.match(/^\/gallery\/([a-z0-9-]+)\/approve$/);
+  if (approveMatch && method === "POST") {
+    const itemId = approveMatch[1];
+    const item = await kv.get(`pending:${itemId}`, "json");
+    if (!item) {
+      return jsonResponse({ error: "Not found or already expired" }, 404, cors);
+    }
+
+    // Move from pending (with TTL) to approved (permanent)
+    item.approved = true;
+    item.approvedAt = new Date().toISOString();
+    await kv.put(`approved:${itemId}`, JSON.stringify(item));
+    await kv.delete(`pending:${itemId}`);
+
+    return jsonResponse({ ok: true, id: itemId }, 200, cors);
+  }
+
+  // DELETE /gallery/:id — delete an item (pending or approved)
+  const deleteMatch = path.match(/^\/gallery\/([a-z0-9-]+)$/);
+  if (deleteMatch && method === "DELETE") {
+    const itemId = deleteMatch[1];
+    await kv.delete(`pending:${itemId}`);
+    await kv.delete(`approved:${itemId}`);
+    return jsonResponse({ ok: true }, 200, cors);
+  }
+
+  return jsonResponse({ error: "Not found" }, 404, cors);
 }
 
 // === Eval mode: test images, prompt variants, results ===

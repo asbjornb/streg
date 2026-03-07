@@ -15,5 +15,9 @@ id = "df39121f0793413cb764fc4f0f95b078"
 binding = "EVAL_STORE"
 id = "c4aa71e2e1bf4f6fb22b738c6e7adf26"
 
+[[kv_namespaces]]
+binding = "GALLERY"
+id = "PLACEHOLDER_GALLERY_KV_ID"
+
 [vars]
 ALLOWED_ORIGIN = "https://streg.pages.dev"
